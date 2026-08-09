@@ -81,21 +81,22 @@ The compiled link graph is the real difference. Nothing else Sphinx writes lets
 a caller ask what a scope cites and what cites it without rerunning Sphinx or
 scraping generated HTML.
 
-### Relationship to `llms.txt`
+### Text exports and indexed retrieval
 
-An `llms-full.txt` export is useful when a consumer needs one text snapshot of
-an entire documentation site. Projects such as
+An `llms-full.txt` file concatenates a documentation site into one text export.
+Projects such as
 [`sphinx-llms-txt`](https://github.com/jdillard/sphinx-llms-txt) and
-[`NVIDIA/sphinx-llm`](https://github.com/NVIDIA/sphinx-llm) provide that output
-for Sphinx projects.
+[`NVIDIA/sphinx-llm`](https://github.com/NVIDIA/sphinx-llm) generate this kind of
+output for Sphinx.
 
-Lens answers a different retrieval question: how can a consumer read one
-compiled scope and traverse its relationships without loading the whole corpus?
-It preserves stable Sphinx references, hierarchy, domain objects, and the link
-graph so an agent can retrieve scopes on demand. It does not generate
-`llms.txt`, and those exporters do not need to become structural indexes. A
-project can publish both beside its HTML: a flat export for bulk ingestion and a
-Lens index for precise navigation.
+A Lens index keeps documents, sections, and domain objects separately
+addressable. A consumer resolves a reference, reads that scope, and can follow
+its hierarchy and links. This avoids sending the full corpus with every request
+or reconstructing structure from HTML.
+
+Both artifacts can be published beside the HTML documentation. The text export
+supports bulk ingestion, while the Lens index supports selecting and traversing
+individual scopes.
 
 The text is the honest weakness. `astext()` flattens prose, code blocks, tables,
 and admonitions into one undifferentiated string, which is a strange thing for a
