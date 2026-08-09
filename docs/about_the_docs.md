@@ -1,0 +1,54 @@
+# About this documentation
+
+This project ships documentation as a first-class artifact, not as an afterthought.
+The docs are generated with [Sphinx](https://www.sphinx-doc.org/) + [MyST](https://myst-parser.readthedocs.io/) and follow [Diataxis](https://diataxis.fr/):
+
+- tutorial content for onboarding,
+- how-to guides for operation,
+- reference for factual lookups,
+- explanation for rationale and tradeoffs.
+
+## Why this structure
+
+The template is opinionated: new repositories should start with a usable knowledge base from day one.
+This includes:
+
+- runnable local setup instructions,
+- explicit QA/release workflows,
+- a central configuration reference with a glossary,
+- architectural and process rationale.
+
+The approach is aligned with the principles described in the template author notes:
+[Opinionated Python project scaffolding](https://mgaitan.github.io/en/posts/opinionated-python-project-scaffolding/).
+
+## Design decisions captured here
+
+### Docs-as-code in the same repository
+
+Documentation and implementation evolve together.
+Any behavioral change should update docs in the same PR.
+
+### Build should fail on docs regressions
+
+`make docs` runs Sphinx in warning-as-error mode so broken links or directives are caught early.
+
+### Examples should be executable
+
+We ship [richterm](https://github.com/mgaitan/richterm) for CLI captures and
+[sphinxcontrib-mermaid](https://github.com/mgaitan/sphinxcontrib-mermaid) for diagrams.
+
+### Publishing is automated
+
+`gh:.github/workflows/cd.yml` deploys docs to GitHub Pages:
+
+- release/manual runs publish canonical docs,
+- PRs with docs changes publish previews under
+  `https://mgaitan.github.io/sphinx-lens/_preview/pr-<PR_NUMBER>/`.
+
+For manual dispatch using `gh` CLI, authentication usually relies on {term}`GH_TOKEN`.
+Workflow internals rely on {term}`GITHUB_TOKEN`.
+
+## Configuration and glossary
+
+Environment variables used by commands, docs examples, or workflows are documented in [Configuration](configuration.md).
+When an env var appears in a chapter, reference it with `{term}` (for example {term}`PYTHONPATH`).

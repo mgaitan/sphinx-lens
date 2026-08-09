@@ -1,0 +1,14 @@
+# Changes here will be overwritten by Copier.
+_commit: 0.6.0
+_src_path: gh:mgaitan/python-package-copier-template
+author_email: gaitan@gmail.com
+author_fullname: Martín Gaitán
+author_username: mgaitan
+copyright_license: BSD-3-Clause
+gh_repo_create: public
+project_description: Semantic extraction and navigation for Sphinx documentation
+project_name: Sphinx Lens
+python_package_command_line_name: sphinx-lens
+python_package_distribution_name: sphinx-lens
+python_package_import_name: sphinx_lens
+repository_name: sphinx-lens
