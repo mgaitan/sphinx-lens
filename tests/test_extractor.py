@@ -152,20 +152,13 @@ def test_unusual_doctree_nodes():
     signature += nodes.Text("loose signature")
     document += signature
     app = SimpleNamespace(env=SimpleNamespace(titles={}))
-    anchor_parents: dict[tuple[str, str], str] = {}
-    anchor_texts: dict[tuple[str, str], str] = {}
+    anchors = extractor.AnchorIndex()
 
-    entries = extractor._document_entries(
-        cast("BuildEnvironment", app.env),
-        "fallback",
-        document,
-        anchor_parents,
-        anchor_texts,
-    )
+    entries = extractor._document_entries(cast("BuildEnvironment", app.env), "fallback", document, anchors)
 
     assert entries[0].title == "fallback"
     assert entries[1].title == "generated"
-    assert anchor_texts[("fallback", "loose-object")] == "loose signature"
+    assert anchors.texts[("fallback", "loose-object")] == "loose signature"
 
 
 def test_reference_edge_cases():
@@ -177,9 +170,10 @@ def test_reference_edge_cases():
     assert extractor._reference_target("guide", nodes.reference()) == ("", "unresolved")
 
     raw_document = new_document("references")
-    missing_xref = addnodes.pending_xref(refdomain="doc", reftype="myst", reftarget="missing")
-    missing_xref += nodes.inline("", "missing")
-    raw_document += missing_xref
+    toctree = addnodes.toctree()
+    toctree["entries"] = [("This page", "self"), ("External", "https://example.com"), (None, "guide")]
+    raw_document += toctree
+
     resolved_document = new_document("references-resolved")
     resolved_document += nodes.reference("", "empty")
     resolved_document += nodes.reference("", "missing", refuri="missing.html#part")
@@ -188,19 +182,12 @@ def test_reference_edge_cases():
     content += nodes.reference("", "nested", refuri="nested.html")
     description += content
     resolved_document += description
-    toctree = addnodes.toctree()
-    toctree["entries"] = [("This page", "self"), ("External", "https://example.com"), (None, "guide")]
-    raw_document += toctree
 
-    links = list(
-        extractor._document_links(
-            "index",
-            raw_document,
-            resolved_document,
-            {},
-            {"index", "guide"},
-        )
-    )
+    anchors = extractor.AnchorIndex()
+    links = [
+        *extractor._toctree_links("index", raw_document, anchors),
+        *extractor._resolved_links("index", resolved_document, anchors, {"index", "guide"}),
+    ]
 
     assert {(link.target, link.kind) for link in links} == {
         ("missing#part", "unresolved"),
@@ -211,17 +198,63 @@ def test_reference_edge_cases():
 
 def test_resolved_xrefs_and_root_relative_paths():
     """Sphinx-resolved references retain destinations across domains."""
-    raw = new_document("raw")
-    xref = addnodes.pending_xref(refdomain="doc", reftype="myst", reftarget="guide")
-    xref += nodes.inline("", "Guide")
-    raw += xref
     resolved = new_document("resolved")
     resolved += nodes.reference("", "Guide", refuri="guide")
 
-    links = list(extractor._document_links("index", raw, resolved, {}, {"index", "guide"}))
+    links = list(extractor._resolved_links("index", resolved, extractor.AnchorIndex(), {"index", "guide"}))
 
     assert links == [extractor.Link(source="index", target="guide", label="Guide", kind="internal")]
     assert extractor._reference_target("guide/page", nodes.reference(refuri="/api.html#client")) == (
         "api#client",
         "internal",
     )
+
+
+def test_entries_keep_source_order(sphinx_project: Path):
+    """Composed scopes follow the document, not the alphabet."""
+    lens = build(sphinx_project)
+
+    # The fixture's guide.rst deliberately orders its headings against the alphabet.
+    assert [child.ref for child in lens.children("guide")] == [
+        "guide#connection-timeout",
+        "guide#retry-policy",
+        "guide#glossary",
+    ]
+    guide_text = lens.read("guide")
+    assert guide_text.index("Connection timeout") < guide_text.index("Retry policy") < guide_text.index("Glossary")
+
+
+def test_incremental_rebuild_keeps_every_link(sphinx_project: Path, tmp_path: Path):
+    """A rebuild after touching one file still writes the whole link graph."""
+    output = tmp_path / "lens"
+    doctrees = tmp_path / "doctrees"
+
+    def run() -> Lens:
+        app = Sphinx(
+            srcdir=sphinx_project,
+            confdir=sphinx_project,
+            outdir=output,
+            doctreedir=doctrees,
+            buildername="lens",
+            freshenv=False,
+        )
+        app.build(force_all=False)
+        return Lens.open(output)
+
+    complete = run()
+    (sphinx_project / "guide.rst").write_text(
+        (sphinx_project / "guide.rst").read_text(encoding="utf-8") + "\nOne more line.\n",
+        encoding="utf-8",
+    )
+    partial = run()
+
+    assert len(partial.links) == len(complete.links)
+
+
+def test_source_is_recorded_only_when_it_stays_relative(sphinx_project: Path, tmp_path: Path):
+    """An artifact outside the source tree records no source path at all."""
+    inside = build(sphinx_project)
+    assert inside.source == "../.."
+
+    outside = build(sphinx_project, tmp_path / "elsewhere")
+    assert outside.source is None

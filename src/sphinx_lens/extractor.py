@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import posixpath
 import subprocess
-from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import StringIO
@@ -33,6 +32,21 @@ if TYPE_CHECKING:
 
 type DomainObject = tuple[str, str, str, str, str, str, int]
 
+
+@dataclass(slots=True)
+class AnchorIndex:
+    """What each ``(document, anchor)`` pair resolves to while extracting.
+
+    ``parents`` gives the entry an anchor belongs to, ``texts`` the prose it
+    introduces, and ``order`` its position in the doctree, which is what lets
+    `read` compose a scope in source order rather than alphabetically.
+    """
+
+    parents: dict[tuple[str, str], str] = field(default_factory=dict)
+    texts: dict[tuple[str, str], str] = field(default_factory=dict)
+    order: dict[tuple[str, str], int] = field(default_factory=dict)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,33 +62,61 @@ class LensBuilder(DummyBuilder):
     allow_parallel = False
 
     def init(self) -> None:
-        """Initialize per-build extraction state."""
+        """Initialize per-build extraction state and listen for failed references."""
         self._entries: list[Entry] = []
         self._links: list[Link] = []
-        self._anchor_parents: dict[tuple[str, str], str] = {}
+        self._anchors = AnchorIndex()
         self._known_locations: set[str] = set()
+        # Run after resolvers such as intersphinx, so only genuine failures arrive.
+        self.events.connect("missing-reference", self._record_missing_reference, priority=1000)
+
+    def get_outdated_docs(self) -> set[str]:
+        """Write every document on every build.
+
+        Links are collected in {py:meth}`write_doc`, so a partial write phase
+        would produce an index whose entries are complete but whose link graph
+        silently covers only the documents Sphinx happened to rebuild.
+        """
+        return self.env.found_docs
 
     def get_target_uri(self, docname: str, typ: str | None = None) -> str:
         """Keep document names in resolved internal reference URIs."""
         return docname
 
     def prepare_writing(self, docnames: AbstractSet[str]) -> None:
-        """Extract entries before Sphinx resolves and writes each doctree."""
-        self._entries, self._anchor_parents = _extract_entries(self.env)
+        """Read each doctree once, for entries and for the toctree edges."""
+        self._entries, self._anchors, self._links = _extract_entries(self.env)
         self._known_locations = {entry.location for entry in self._entries}
 
     def write_doc(self, docname: str, doctree: nodes.document) -> None:
-        """Extract links from a doctree resolved by Sphinx."""
-        raw_doctree = self.env.get_doctree(docname)
-        self._links.extend(_document_links(docname, raw_doctree, doctree, self._anchor_parents, self._known_locations))
+        """Collect the references Sphinx resolved while writing this doctree."""
+        self._links.extend(_resolved_links(docname, doctree, self._anchors, self._known_locations))
+
+    def _record_missing_reference(
+        self,
+        app: Sphinx,
+        env: BuildEnvironment,
+        node: addnodes.pending_xref,
+        contnode: nodes.Element,
+    ) -> None:
+        """Record a cross-reference that no resolver could place."""
+        docname = str(node.get("refdoc", ""))
+        target = str(node.get("reftarget", ""))
+        self._links.append(
+            Link(
+                source=_link_source(docname, node, self._anchors),
+                target=target,
+                label=node.astext(),
+                kind="internal" if target in self._known_locations else "unresolved",
+            )
+        )
 
     def finish(self) -> None:
         """Extract the completed environment into the builder output directory."""
         self._entries.sort(key=lambda entry: (entry.document, entry.location, entry.kind, entry.ref))
         links = sorted(set(self._links), key=lambda link: (link.source, link.target, link.label))
-        source = Path(relpath(self.srcdir, self.outdir)).as_posix()
         lens = Lens(
-            source=source,
+            source=_relative_source(Path(self.srcdir), Path(self.outdir)),
             entries=self._entries,
             links=links,
             metadata=_index_metadata(self.env, Path(self.srcdir)),
@@ -125,6 +167,20 @@ def build(
     return lens
 
 
+def _relative_source(source: Path, output: Path) -> str | None:
+    """Return ``source`` relative to ``output``, or ``None`` when the two are unrelated.
+
+    A build that writes inside its own source tree — the usual
+    `docs/_build/lens` — yields a path that survives moving or cloning the
+    project. A build that writes somewhere else entirely would only yield the
+    absolute layout of the machine that produced it, which is worth less than
+    recording nothing.
+    """
+    if source not in output.parents and output not in source.parents:
+        return None
+    return Path(relpath(source, output)).as_posix()
+
+
 def _index_metadata(environment: BuildEnvironment, source: Path) -> IndexMetadata:
     documents = {
         Path(source_path).relative_to(source).as_posix(): sha256(Path(source_path).read_bytes()).hexdigest()
@@ -155,10 +211,11 @@ def _git_commit(source: Path) -> str | None:
 
 def _extract_entries(
     environment: BuildEnvironment,
-) -> tuple[list[Entry], dict[tuple[str, str], str]]:
+) -> tuple[list[Entry], AnchorIndex, list[Link]]:
+    """Read every doctree once, returning entries, the anchor index, and toctree edges."""
     entries: list[Entry] = []
-    anchor_parents: dict[tuple[str, str], str] = {}
-    anchor_texts: dict[tuple[str, str], str] = {}
+    links: list[Link] = []
+    anchors = AnchorIndex()
     domain_objects = [
         (domain_name, name, display_name, object_type, docname, anchor, priority)
         for domain_name, domain in sorted(environment.domains.items())
@@ -167,20 +224,24 @@ def _extract_entries(
 
     for docname in sorted(environment.found_docs):
         doctree = environment.get_doctree(docname)
-        entries.extend(_document_entries(environment, docname, doctree, anchor_parents, anchor_texts))
+        entries.extend(_document_entries(environment, docname, doctree, anchors))
+        links.extend(_toctree_links(docname, doctree, anchors))
 
-    objects = list(_domain_entries(domain_objects, entries, anchor_parents, anchor_texts))
+    objects = list(_domain_entries(domain_objects, anchors))
     entries.extend(_nest_objects(objects))
-    return entries, anchor_parents
+    return entries, anchors, links
 
 
 def _document_entries(
     environment: BuildEnvironment,
     docname: str,
     doctree: nodes.document,
-    anchor_parents: dict[tuple[str, str], str],
-    anchor_texts: dict[tuple[str, str], str],
+    anchors: AnchorIndex,
 ) -> list[Entry]:
+    for position, element in enumerate(doctree.findall(nodes.Element)):
+        for element_id in element.get("ids", ()):
+            anchors.texts[(docname, str(element_id))] = _anchor_text(element)
+            anchors.order[(docname, str(element_id))] = position
     title_node = environment.titles.get(docname)
     title = title_node.astext() if title_node is not None else docname
     entries = [
@@ -200,7 +261,7 @@ def _document_entries(
         section_title = title_child.astext() if title_child is not None else anchor
         parent_section = _ancestor(section, nodes.section)
         parent_anchor = str(parent_section["ids"][0]) if parent_section is not None else ""
-        parent = anchor_parents.get((docname, parent_anchor), docname)
+        parent = anchors.parents.get((docname, parent_anchor), docname)
         ref = f"{docname}#{anchor}"
         section_ref = docname if parent_section is None and section_title == title else ref
         if section_ref == ref:
@@ -212,6 +273,7 @@ def _document_entries(
                     text=_own_text(section, nested_types=(nodes.section, addnodes.desc)),
                     document=docname,
                     anchor=anchor,
+                    order=anchors.order.get((docname, anchor), 0),
                     parent=parent,
                 )
             )
@@ -220,32 +282,25 @@ def _document_entries(
             if nested_section is not section:
                 continue
             for element_id in element.get("ids", ()):
-                anchor_parents[(docname, str(element_id))] = section_ref
-        anchor_parents[(docname, anchor)] = section_ref
-    for element in doctree.findall(nodes.Element):
-        for element_id in element.get("ids", ()):
-            anchor_texts[(docname, str(element_id))] = _anchor_text(element)
+                anchors.parents[(docname, str(element_id))] = section_ref
+        anchors.parents[(docname, anchor)] = section_ref
     return entries
 
 
-def _domain_entries(
-    domain_objects: Iterable[DomainObject],
-    entries: list[Entry],
-    anchor_parents: dict[tuple[str, str], str],
-    anchor_texts: dict[tuple[str, str], str],
-) -> Iterable[Entry]:
+def _domain_entries(domain_objects: Iterable[DomainObject], anchors: AnchorIndex) -> Iterable[Entry]:
     for domain_name, name, display_name, object_type, docname, anchor, _priority in domain_objects:
         if not docname or not anchor:
             continue
-        parent = anchor_parents.get((docname, anchor), docname)
+        parent = anchors.parents.get((docname, anchor), docname)
         ref = f"{domain_name}:{object_type}:{name}"
         yield Entry(
             ref=ref,
             kind="object",
             title=display_name or name,
-            text=anchor_texts.get((docname, anchor), ""),
+            text=anchors.texts.get((docname, anchor), ""),
             document=docname,
             anchor=anchor,
+            order=anchors.order.get((docname, anchor), 0),
             parent=parent,
             domain=domain_name,
             object_type=object_type,
@@ -270,21 +325,14 @@ def _nest_objects(objects: list[Entry]) -> list[Entry]:
     return nested
 
 
-def _document_links(
+def _toctree_links(
     docname: str,
-    raw_doctree: nodes.document,
-    resolved_doctree: nodes.document,
-    anchor_parents: dict[tuple[str, str], str],
-    known_locations: set[str],
+    doctree: nodes.document,
+    anchors: AnchorIndex,
 ) -> Iterable[Link]:
-    resolved_links = list(_resolved_links(docname, resolved_doctree, anchor_parents, known_locations))
-    resolved_xrefs: Counter[tuple[str, str]] = Counter()
-    for link in resolved_links:
-        resolved_xrefs[(link.source, link.label)] += 1
-        yield link
-    yield from _unresolved_xrefs(docname, raw_doctree, anchor_parents, known_locations, resolved_xrefs)
-    for toctree in raw_doctree.findall(addnodes.toctree):
-        source = _link_source(docname, toctree, anchor_parents)
+    """Yield the edges a toctree declares, which resolution replaces with navigation."""
+    for toctree in doctree.findall(addnodes.toctree):
+        source = _link_source(docname, toctree, anchors)
         for title, target_doc in toctree.get("entries", ()):
             if target_doc == "self" or "://" in target_doc:
                 continue
@@ -294,7 +342,7 @@ def _document_links(
 def _resolved_links(
     docname: str,
     doctree: nodes.document,
-    anchor_parents: dict[tuple[str, str], str],
+    anchors: AnchorIndex,
     known_locations: set[str],
 ) -> Iterable[Link]:
     for reference in doctree.findall(nodes.reference):
@@ -303,7 +351,7 @@ def _resolved_links(
         target, kind = _reference_target(docname, reference)
         if not target:
             continue
-        source = _link_source(docname, reference, anchor_parents)
+        source = _link_source(docname, reference, anchors)
         if kind == "internal" and target not in known_locations:
             target_doc, _separator, _anchor = target.partition("#")
             if target_doc not in known_locations:
@@ -312,28 +360,10 @@ def _resolved_links(
         yield Link(source=source, target=target, label=label, kind=kind)
 
 
-def _unresolved_xrefs(
-    docname: str,
-    doctree: nodes.document,
-    anchor_parents: dict[tuple[str, str], str],
-    known_locations: set[str],
-    resolved_xrefs: Counter[tuple[str, str]],
-) -> Iterable[Link]:
-    for xref in doctree.findall(addnodes.pending_xref):
-        source = _link_source(docname, xref, anchor_parents)
-        key = (source, xref.astext())
-        if resolved_xrefs[key]:
-            resolved_xrefs[key] -= 1
-            continue
-        target = str(xref.get("reftarget", ""))
-        kind = "internal" if target in known_locations else "unresolved"
-        yield Link(source=source, target=target, label=xref.astext(), kind=kind)
-
-
 def _link_source(
     docname: str,
     node: nodes.Node,
-    anchor_parents: dict[tuple[str, str], str],
+    anchors: AnchorIndex,
 ) -> str:
     description = _ancestor(node, addnodes.desc)
     if description is not None:
@@ -342,7 +372,7 @@ def _link_source(
             return f"{docname}#{signature['ids'][0]}"
     section = _nearest_section(node)
     section_anchor = str(section["ids"][0]) if section is not None and section.get("ids") else ""
-    return anchor_parents.get((docname, section_anchor), docname)
+    return anchors.parents.get((docname, section_anchor), docname)
 
 
 def _reference_target(docname: str, reference: nodes.reference) -> tuple[str, str]:

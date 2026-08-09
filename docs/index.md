@@ -8,75 +8,104 @@
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/mgaitan/sphinx-lens/blob/main/LICENSE)
 
+**Structure-aware indexing and precise navigation for Sphinx documentation.**
 
-Structure-aware indexing and precise navigation for Sphinx documentation.
+## The problem
 
-Sphinx Lens compiles stable references, scoped text, hierarchy, and links for
-coding agents. Its lexical search locates a reference; it does not claim
-embedding-based semantic similarity.
+Any documentation project large enough to be worth searching is too large to
+read. Asking it one specific question usually leaves two options, and both are
+bad: grep the sources and get the word without the scope that explains it, or
+read whole files and bury the relevant paragraph under hundreds of others. What
+neither approach has is structure.
 
-## Quick Start
+Take a concrete case. You want to know whether `atomic()` rolls back to a
+savepoint or to the start of the outermost block. The answer is one paragraph
+somewhere in Django's documentation, which is 674 source files and about 10 MB
+of prose.
 
-Run from the project's environment so its Sphinx extensions are available:
+Grep for `atomic` and you get several hundred hits across tutorials, release
+notes, and API tables, with no way to tell which one is the definition. Feed the
+likely files to a model instead and you spend tens of thousands of tokens on
+prose about connection pooling and test runners to reach three sentences.
+
+Sphinx has just finished compiling that same project and knows the answer's
+address. It knows `django.db.transaction.atomic` is a documented function, which
+section documents it, that the section ends where the next heading begins, and
+which other pages cross-reference it. It parsed RST and MyST, ran autodoc and
+the project's own extensions, built a domain inventory of every class, function,
+and glossary term, and resolved every reference to produce that knowledge. Then
+it renders HTML and throws all of it away.
+
+## What Sphinx Lens does
+
+Sphinx Lens is a Sphinx builder that keeps that knowledge. Instead of HTML it
+writes a single JSON index of everything the compiled environment already knows:
+documents, sections, and domain objects, each with a stable reference and its
+own scoped text, plus the full directed graph of cross-references between them.
+
+Building it is a normal Sphinx build, so it costs one command and no
+configuration:
 
 ```bash
-uv run --group docs sphinx-lens --help
+sphinx-build -b lens docs/ docs/_build/lens/
 ```
 
-When running from source, we use {term}`PYTHONPATH` in docs examples so the local package is importable without an install step.
+From then on the questions are cheap. Staying with Django as the example, find
+the reference:
 
-```{richterm} env PYTHONPATH=../src uv run -m sphinx_lens --help
-:hide-command: true
+```console
+$ sphinx-lens locate "database transactions" -i /tmp/django-lens --limit 3
+1.00  std:label:topics/db/transactions:database transactions
+1.00  topics/db/transactions
+0.90  std:label:topics/db/transactions:managing database transactions
 ```
 
-The native `lens` builder writes `_build/lens/index.json` alongside other Sphinx
-artifacts. See [Getting Started](getting_started.md) for the complete workflow.
+Read that scope on its own:
 
-## Documentation Map (Diataxis)
+```console
+$ sphinx-lens read py:function:django.db.transaction.atomic -i /tmp/django-lens
+```
 
-This project follows the [Diataxis](https://diataxis.fr/) framework:
+Or ask what the rest of the documentation says about it:
 
-- Tutorials: learning-oriented, step-by-step.
-- How-to guides: goal-oriented operational procedures.
-- Reference: factual, lookup-first technical details.
-- Explanation: context, rationale, and design choices.
+```console
+$ sphinx-lens links py:class:django.db.models.Model -i /tmp/django-lens
+```
 
+The unit of retrieval throughout is a documented scope: what the author wrote as
+one idea, addressed by the name the project gave it. That is the whole idea, and
+it applies to a ten-page internal handbook as much as to Django.
+
+## Scope and limits
+
+`locate` is lexical. It ranks exact names, headings, phrases, and token matches,
+and it accepts regular expressions. It has no notion of embedding similarity and
+will not answer a question phrased as a question. Its job is to find the right
+reference quickly; reading and traversing are what the index is for.
+
+The scope of the project stops at the index. It has one runtime dependency,
+Sphinx itself, and it writes a file you can commit, publish next to your HTML,
+or pipe through `jq`. Retrieval frameworks, agent runtimes, and servers are all
+things that can be built on top of it.
+
+## Where to start
+
+New here? [Getting started](getting_started.md) builds an index and queries it
+in a few minutes. If you would rather see whether the idea holds up first,
+[How it works](design.md) explains the model and
+[Real-world corpora](corpus_evaluation.md) reports what it does to Django and
+CPython.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Tutorials
 
 getting_started.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: How-to Guides
-
-development_workflow.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Reference
-
-configuration.md
 reference.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Explanation
-
-about_the_docs.md
 design.md
 corpus_evaluation.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Project Policies
-
+configuration.md
+development_workflow.md
+about_the_docs.md
 ../CONTRIBUTING.md
 ../CODE_OF_CONDUCT.md
 ```

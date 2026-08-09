@@ -1,10 +1,13 @@
-# CLI and Python API (Reference)
+# CLI and Python API
 
-Sphinx Lens stores a versioned JSON index independent of Sphinx's pickled build
-environment. A builder output directory contains `index.json`; a direct path can
-also point to the file.
+The complete surface: one builder, five commands, one class, and the shape of
+the file they all read. [Getting started](getting_started.md) is the guided
+version of the same material.
 
-## Sphinx Builder
+Every query command takes `--index`, which accepts either a builder output
+directory containing `index.json` or a direct path to the file itself.
+
+## Sphinx builder
 
 The installed package registers a native builder through Sphinx's builder entry
 point. No `conf.py` change is required:
@@ -49,7 +52,7 @@ Targets use one of these forms:
 - Section: `guide/network#timeouts`
 - Domain object: `py:class:example.Client`
 
-## Shell Composition
+## Shell composition
 
 Use `jq` for structured predicates and projections over either search results or
 the complete model:
@@ -97,25 +100,29 @@ both_directions = lens.linked(entry.ref)
 Links use physical locations so incoming references to a section and to an
 object at the same Sphinx anchor can be combined.
 
-## Index Model
+## Index model
 
-The version 2 JSON document contains:
+The version 3 JSON document contains:
 
-- `source`: source directory relative to the artifact.
+- `source`: the source directory relative to the artifact, or `null` when the
+  artifact was written outside the source tree and no relative path would
+  survive being moved.
 - `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
   and a SHA-256 hash for each source document.
-- `entries`: documents, sections, and domain objects with normalized text and
-  parent relationships.
+- `entries`: documents, sections, and domain objects with normalized text,
+  parent relationships, and an `order` recording each entry's position in its
+  document.
 - `links`: internal, external, and unresolved directed references.
 
 `Lens.open()` warns when available local sources no longer match their hashes.
-Missing sources do not prevent a published artifact from loading.
+Missing sources, and a `null` source, do not prevent an artifact from loading.
 
 Documents, sections, and objects store only their own normalized text. `read`
-reconstructs a scope by composing its descendants, avoiding repeated ancestor
-content in search results. Markup distinctions such as code blocks and tables
-are not preserved in version 2.
+reconstructs a scope by composing its descendants in source order, and
+`children` returns them the same way, so a composed page reads top to bottom
+rather than alphabetically. Markup distinctions such as code blocks and tables
+are not preserved.
 
-The index is intentionally a portable intermediate representation. `locate` is
-a reference finder, not semantic similarity search; it does not require Neo4j,
-RDF, an embedding model, or an LLM.
+The index is a portable intermediate representation and nothing more: one JSON
+file, readable without Sphinx, a database, or a model. `locate` is a reference
+finder, not semantic similarity search.

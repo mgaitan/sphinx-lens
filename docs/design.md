@@ -1,12 +1,18 @@
-# Structure-Aware Interface Design (Explanation)
+# How it works
 
-Sphinx already compiles source formats and extension behavior into a semantic
-environment. Sphinx Lens is a builder over that environment, not a second parser
-and not an agent runtime. Its primary consumer is a coding agent that needs one
-precise documentation scope instead of an entire source tree. The CLI also makes
-the artifact inspectable by developers and shell tools.
+Sphinx Lens runs as a Sphinx build. Most of the rest follows from that one
+choice.
 
-## Build and Query Flow
+Writing a parser is the obvious approach, and it does not survive contact with
+real projects. A Sphinx project is RST and MyST together, expanded by autodoc,
+transformed by extensions, organized by domains the project may have defined
+itself, with cross-references that only resolve in the context of the module or
+class they appear in. Reimplementing part of that means eventually
+reimplementing all of it.
+
+So the `lens` builder runs after Sphinx has read every source, expanded every
+extension, populated every domain, and resolved every reference. By then the
+hard work is finished, and what remains is writing it down.
 
 ```{mermaid}
 flowchart LR
@@ -23,12 +29,17 @@ flowchart LR
     H --> I
 ```
 
-Keeping the index under `_build/lens/` gives it the same lifecycle as HTML,
-linkcheck, or doctree outputs. Clean builds can remove all generated artifacts
-together, and CI can publish or cache the semantic index using existing Sphinx
-conventions.
+The index therefore inherits every format and extension the project already
+supports, at no cost. A project that adds a custom domain next year will get
+that domain in its index without Sphinx Lens knowing it exists.
 
-## Semantic Model
+The output lives under `_build/lens/` for the same reason. It is a build
+artifact like HTML or linkcheck results, so it inherits their lifecycle: `make
+clean` removes it, CI caches it, and publishing it requires no new convention.
+
+## The model
+
+Three kinds of entry, arranged in a hierarchy, connected by a directed graph.
 
 ```{mermaid}
 flowchart TD
@@ -42,19 +53,23 @@ flowchart TD
     O -. "references" .-> S
 ```
 
-Documents and sections use physical Sphinx locations such as
-`guide/network#timeouts`. Domain objects use semantic references such as
-`py:class:example.Client` and retain a physical `location`. This lets callers
-resolve by meaning while link traversal remains anchored to compiled documents.
+Documents and sections are addressed physically, as `guide/network#timeouts`.
+Domain objects are addressed by meaning, as `py:class:example.Client`, and also
+keep the physical `location` where they are documented. Callers can therefore
+ask for a thing by name while link traversal stays anchored to real documents,
+which is what lets an incoming reference to a section and to the object defined
+at the same anchor be combined instead of split.
 
-Each entry stores its own text, excluding nested sections and objects. `read`
-walks the hierarchy to compose the requested scope. This keeps an ancestor and
-its most specific descendant from competing as duplicate search hits.
+Each entry stores only its own text, excluding nested sections and objects, and
+`read` composes a scope back together by walking the hierarchy in source order.
+Without that split, a search for a phrase would match the paragraph, the section
+containing it, and the whole document, and all three would compete for the same
+result slot.
 
-## Why a Separate Artifact?
+## Why a separate artifact
 
-Sphinx already emits useful representations, but each answers a narrower or
-less portable question:
+Sphinx already emits several representations. The honest question is why none of
+them is enough:
 
 | Artifact | What it provides | What Lens adds |
 | --- | --- | --- |
@@ -62,19 +77,37 @@ less portable question:
 | `searchindex.js` | Theme-facing lexical search data | Stable domain references and a format independent of HTML builders |
 | `doctrees/` | Complete docutils trees | A versioned JSON contract that does not unpickle project-controlled Python objects |
 
-The compiled link graph is the main difference: callers can inspect what a
-scope cites and what cites it without rerunning Sphinx or parsing generated HTML.
-The normalized text is intentionally lossy in this PoC; preserving source markup
-and source ranges is a candidate for a later index version.
+The compiled link graph is the real difference. Nothing else Sphinx writes lets
+a caller ask what a scope cites and what cites it without rerunning Sphinx or
+scraping generated HTML.
 
-## Deliberate Boundaries
+The text is the honest weakness. `astext()` flattens prose, code blocks, tables,
+and admonitions into one undifferentiated string, which is a strange thing for a
+structure-aware index to do. Entries are addressable and nested; the text inside
+them is flat.
 
-- Sphinx Lens stores JSON instead of Sphinx's Python pickle so other processes
-  and languages can consume the artifact safely.
-- `locate` is local lexical search for a stable reference. Embeddings or LLM
-  decisions belong in optional callers, not in the core index format.
-- Regex and shell composition cover precise or ad hoc analysis without adding a
-  custom query language.
-- MCP can be an adapter over `Lens`; it does not define the core model.
-- JSON favors auditability in the PoC. SQLite with FTS5 remains a compatible
-  future store when repeated large-corpus queries justify it.
+## Deliberate boundaries
+
+Some things this project chooses to leave out, and why.
+
+Sphinx stores its environment as a Python pickle, and unpickling it executes
+project-controlled code. An artifact meant to be published, cached, and read by
+other processes and other languages cannot require that, so the index is JSON.
+
+`locate` is lexical. Its job is to turn a phrase into a stable reference so the
+caller can read and traverse from there. Similarity search belongs to a caller
+that has a model, and building it into the format would date the format.
+
+Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`,
+`--json`, and `jq`. A query language of its own would be one more thing to learn
+and one more thing to maintain.
+
+The index is a file. A build produces it, a repository can commit it, and any
+process can read it without a daemon, a port, or credentials. Anything that
+speaks a protocol is an adapter over `Lens`, and adapters do not get to shape
+the data model.
+
+JSON is auditable, diffable, and greppable, which is what an artifact meant to
+be inspected should be. It is also parsed in full on every open, so repeated
+queries against a large corpus pay for that readability in startup time.
+[Real-world corpora](corpus_evaluation.md) measures how much.

@@ -9,16 +9,21 @@
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/mgaitan/sphinx-lens/blob/main/LICENSE)
 
 
-Structure-aware indexing and precise navigation for Sphinx documentation.
+**Structure-aware indexing and precise navigation for Sphinx documentation.**
 
-Sphinx Lens gives coding agents a small, portable view of a documentation
-project: stable Sphinx references, scoped text, hierarchy, and the compiled link
-graph. Its search command finds those references; it is lexical, not an
-embedding or LLM search engine.
+Sphinx knows things about your documentation that nothing downstream gets to
+use: which text belongs to which section, that `django.db.transaction.atomic` is
+a documented object with a canonical name, and where every cross-reference
+points. Then it renders HTML and throws that away.
 
-## Quick Start
+Sphinx Lens is a Sphinx builder that writes it down instead. The output is a
+single JSON index of documents, sections, and domain objects, each with a stable
+reference and its own scoped text, plus the compiled link graph between them.
+Coding agents get to read one precise scope instead of grepping a source tree.
 
-Install Sphinx Lens in the same environment as the documentation and build the
+## Quick start
+
+Install Sphinx Lens in the same environment as your documentation and build the
 index like any other Sphinx artifact:
 
 ```bash
@@ -45,8 +50,13 @@ Install the bundled agent skill with
 uvx library-skills install --skill sphinx-lens --yes
 ```
 
-See the [design explanation](docs/design.md) for how Lens differs from
-`objects.inv`, `searchindex.js`, and Sphinx doctrees.
+`locate` is lexical. It finds the right reference so that `read` and `links` can
+do the real work; embedding similarity is out of scope.
+
+Full documentation is at <https://mgaitan.github.io/sphinx-lens/>. Start with
+[Getting started](docs/getting_started.md), or read
+[How it works](docs/design.md) for why this is a separate artifact rather than a
+reuse of `objects.inv`, `searchindex.js`, or Sphinx doctrees.
 
 ## Development
 
@@ -77,11 +87,4 @@ prek run --all-files
 https://mgaitan.github.io/sphinx-lens/_preview/pr-<PR_NUMBER>/
 ```
 
-## Documentation
-
-- Docs follow [Diataxis](https://diataxis.fr/).
-- Start at `docs/index.md` and read:
-  - `docs/getting_started.md` (tutorial),
-  - `docs/development_workflow.md` (how-to),
-  - `docs/configuration.md` (reference),
-  - `docs/about_the_docs.md` (explanation and design rationale).
+- Build this project's own index with `make lens`, and the docs with `make docs`.
