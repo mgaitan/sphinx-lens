@@ -1,6 +1,18 @@
-# Development Workflow (How-to)
+# Development workflow
 
-This guide covers the most common maintenance tasks.
+The most common maintenance tasks, in roughly the order you hit them.
+
+## Build the documentation
+
+```bash
+make docs        # HTML, with warnings as errors
+make docs-open   # build and open in a browser
+make lens        # this project's own Sphinx Lens index
+```
+
+`make lens` is worth running on any documentation change: this repository is one
+of the corpora in [Real-world corpora](corpus_evaluation.md), so its own index
+is the fastest way to notice an extraction regression.
 
 ## Use the pinned Python
 

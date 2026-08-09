@@ -1,7 +1,8 @@
-# Configuration (Reference)
+# Environment variables
 
-This chapter is a lookup reference for environment variables used by commands,
-documentation examples, and CI workflows.
+Sphinx Lens itself reads no environment variables: the builder is configured by
+Sphinx and the CLI by its own flags. The variables below are the ones this
+repository's commands, documentation examples, and CI workflows depend on.
 
 ```{glossary}
 PYTHONPATH

@@ -8,75 +8,93 @@
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/mgaitan/sphinx-lens/blob/main/LICENSE)
 
+**Structure-aware indexing and precise navigation for Sphinx documentation.**
 
-Structure-aware indexing and precise navigation for Sphinx documentation.
+## The problem
 
-Sphinx Lens compiles stable references, scoped text, hierarchy, and links for
-coding agents. Its lexical search locates a reference; it does not claim
-embedding-based semantic similarity.
+Django's documentation is 674 source files and about 10 MB of prose. When a
+coding agent needs to know how `atomic()` interacts with savepoints, it has two
+bad options. It can grep the sources, which finds the word but not the scope
+that explains it, and returns fragments cut at arbitrary line boundaries. Or it
+can read whole files into its context window, which is expensive, imprecise, and
+tends to bury the relevant paragraph under thousands of irrelevant ones.
 
-## Quick Start
+Neither option knows that `django.db.transaction.atomic` is a *thing*, that it
+lives in a specific section, that eleven other pages point at it, or that the
+paragraph explaining it ends where the next heading begins.
 
-Run from the project's environment so its Sphinx extensions are available:
+Sphinx does know all of that. It parses RST and MyST, expands autodoc, runs the
+project's own extensions, builds a domain inventory of every documented class,
+function, and glossary term, and resolves every cross-reference. Then it renders
+HTML and throws the knowledge away.
+
+## What Sphinx Lens does
+
+Sphinx Lens is a Sphinx builder that keeps that knowledge. Instead of HTML it
+writes a single JSON index of everything the compiled environment already knows:
+documents, sections, and domain objects, each with a stable reference and its
+own scoped text, plus the full directed graph of cross-references between them.
+
+Building it is a normal Sphinx build, so it costs one command and no
+configuration:
 
 ```bash
-uv run --group docs sphinx-lens --help
+sphinx-build -b lens docs/ docs/_build/lens/
 ```
 
-When running from source, we use {term}`PYTHONPATH` in docs examples so the local package is importable without an install step.
+From then on, the questions are cheap. Find the reference:
 
-```{richterm} env PYTHONPATH=../src uv run -m sphinx_lens --help
-:hide-command: true
+```console
+$ sphinx-lens locate "database transactions" -i docs/_build/lens --limit 3
+1.00  std:label:topics/db/transactions:database transactions
+1.00  topics/db/transactions
+0.90  std:label:topics/db/transactions:managing database transactions
 ```
 
-The native `lens` builder writes `_build/lens/index.json` alongside other Sphinx
-artifacts. See [Getting Started](getting_started.md) for the complete workflow.
+Read exactly that scope and nothing else:
 
-## Documentation Map (Diataxis)
+```console
+$ sphinx-lens read py:function:django.db.transaction.atomic -i docs/_build/lens
+```
 
-This project follows the [Diataxis](https://diataxis.fr/) framework:
+Or ask what the rest of the documentation says about it:
 
-- Tutorials: learning-oriented, step-by-step.
-- How-to guides: goal-oriented operational procedures.
-- Reference: factual, lookup-first technical details.
-- Explanation: context, rationale, and design choices.
+```console
+$ sphinx-lens links py:class:django.db.models.Model -i docs/_build/lens
+```
 
+The unit of retrieval is a documented scope, not a file and not a line range.
+That is the whole idea.
+
+## What it is not
+
+`locate` is lexical. It ranks exact names, headings, phrases, and token matches,
+and it accepts regular expressions, but it does not do embedding similarity and
+will not answer a question phrased as a question. It is a way to find the right
+reference quickly; reading and traversing are what the index is really for.
+
+Sphinx Lens is also not a retrieval framework, an agent runtime, or a second
+Markdown parser. It has one runtime dependency, Sphinx itself, and it writes a
+file you can commit, publish next to your HTML, or pipe through `jq`.
+
+## Where to start
+
+New here? [Getting started](getting_started.md) builds an index and queries it
+in a few minutes. If you would rather see whether the idea holds up first,
+[How it works](design.md) explains the model and
+[Real-world corpora](corpus_evaluation.md) reports what it does to Django and
+CPython.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Tutorials
 
 getting_started.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: How-to Guides
-
-development_workflow.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Reference
-
-configuration.md
 reference.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Explanation
-
-about_the_docs.md
 design.md
 corpus_evaluation.md
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Project Policies
-
+configuration.md
+development_workflow.md
+about_the_docs.md
 ../CONTRIBUTING.md
 ../CODE_OF_CONDUCT.md
 ```

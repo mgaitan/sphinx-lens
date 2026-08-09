@@ -1,54 +1,53 @@
-# About this documentation
+# About these docs
 
-This project ships documentation as a first-class artifact, not as an afterthought.
-The docs are generated with [Sphinx](https://www.sphinx-doc.org/) + [MyST](https://myst-parser.readthedocs.io/) and follow [Diataxis](https://diataxis.fr/):
+Conventions for anyone writing documentation in this repository. If you are here
+to *use* Sphinx Lens, you want [Getting started](getting_started.md) instead.
 
-- tutorial content for onboarding,
-- how-to guides for operation,
-- reference for factual lookups,
-- explanation for rationale and tradeoffs.
+## Documentation ships with the change
 
-## Why this structure
+Docs and implementation live in the same repository and evolve in the same pull
+request. A behavioral change without a documentation change is an incomplete
+change, in the same way a behavioral change without a test is.
 
-The template is opinionated: new repositories should start with a usable knowledge base from day one.
-This includes:
+## Broken docs break the build
 
-- runnable local setup instructions,
-- explicit QA/release workflows,
-- a central configuration reference with a glossary,
-- architectural and process rationale.
+`make docs` runs Sphinx with warnings as errors, so a dead cross-reference, a
+malformed directive, or an orphaned page fails CI rather than shipping quietly.
 
-The approach is aligned with the principles described in the template author notes:
+## Examples are executed, not transcribed
+
+Hand-written command output rots. Where a chapter shows a command, prefer
+[richterm](https://github.com/mgaitan/richterm), which runs it during the docs
+build, and [sphinxcontrib-mermaid](https://github.com/mgaitan/sphinxcontrib-mermaid)
+for diagrams that live as text.
+
+Numbers recorded from long or expensive runs — the corpus measurements, for
+example — are the exception. Those are transcribed on purpose, with the commit
+they came from, so they can be re-verified rather than silently re-run.
+
+## Chapters are ordered as a path, not as a taxonomy
+
+The chapter order in the sidebar is a reading order: get it running, look
+something up, understand why it is built this way, see what it does under load,
+contribute. [Diataxis](https://diataxis.fr/) informed that shape — a tutorial,
+reference material, and explanation each doing one job — but it is a writing
+tool, not something the reader should have to know about. Do not label chapters
+with their Diataxis mode, and do not split the table of contents into one group
+per mode.
+
+Keep environment variable definitions in [Environment variables](configuration.md)
+using the `glossary` directive, and refer to them with `{term}` — for example
+{term}`PYTHONPATH` — so the definition has exactly one home.
+
+## Publishing is automated
+
+`gh:.github/workflows/cd.yml` deploys to GitHub Pages: release and manual runs
+publish the canonical site, and pull requests that touch docs publish a preview
+under `https://mgaitan.github.io/sphinx-lens/_preview/pr-<PR_NUMBER>/`.
+
+Manual dispatch through the `gh` CLI usually authenticates with {term}`GH_TOKEN`;
+the workflow internals use {term}`GITHUB_TOKEN`.
+
+These conventions come from the repository template; the reasoning behind them
+is written up in
 [Opinionated Python project scaffolding](https://mgaitan.github.io/en/posts/opinionated-python-project-scaffolding/).
-
-## Design decisions captured here
-
-### Docs-as-code in the same repository
-
-Documentation and implementation evolve together.
-Any behavioral change should update docs in the same PR.
-
-### Build should fail on docs regressions
-
-`make docs` runs Sphinx in warning-as-error mode so broken links or directives are caught early.
-
-### Examples should be executable
-
-We ship [richterm](https://github.com/mgaitan/richterm) for CLI captures and
-[sphinxcontrib-mermaid](https://github.com/mgaitan/sphinxcontrib-mermaid) for diagrams.
-
-### Publishing is automated
-
-`gh:.github/workflows/cd.yml` deploys docs to GitHub Pages:
-
-- release/manual runs publish canonical docs,
-- PRs with docs changes publish previews under
-  `https://mgaitan.github.io/sphinx-lens/_preview/pr-<PR_NUMBER>/`.
-
-For manual dispatch using `gh` CLI, authentication usually relies on {term}`GH_TOKEN`.
-Workflow internals rely on {term}`GITHUB_TOKEN`.
-
-## Configuration and glossary
-
-Environment variables used by commands, docs examples, or workflows are documented in [Configuration](configuration.md).
-When an env var appears in a chapter, reference it with `{term}` (for example {term}`PYTHONPATH`).

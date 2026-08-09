@@ -1,10 +1,13 @@
-# CLI and Python API (Reference)
+# CLI and Python API
 
-Sphinx Lens stores a versioned JSON index independent of Sphinx's pickled build
-environment. A builder output directory contains `index.json`; a direct path can
-also point to the file.
+The complete surface: one builder, five commands, one class, and the shape of
+the file they all read. [Getting started](getting_started.md) is the guided
+version of the same material.
 
-## Sphinx Builder
+Every query command takes `--index`, which accepts either a builder output
+directory containing `index.json` or a direct path to the file itself.
+
+## Sphinx builder
 
 The installed package registers a native builder through Sphinx's builder entry
 point. No `conf.py` change is required:
@@ -49,7 +52,7 @@ Targets use one of these forms:
 - Section: `guide/network#timeouts`
 - Domain object: `py:class:example.Client`
 
-## Shell Composition
+## Shell composition
 
 Use `jq` for structured predicates and projections over either search results or
 the complete model:
@@ -97,7 +100,7 @@ both_directions = lens.linked(entry.ref)
 Links use physical locations so incoming references to a section and to an
 object at the same Sphinx anchor can be combined.
 
-## Index Model
+## Index model
 
 The version 2 JSON document contains:
 
