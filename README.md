@@ -21,6 +21,10 @@ single JSON index of documents, sections, and domain objects, each with a stable
 reference and its own scoped text, plus the compiled link graph between them.
 Coding agents get to read one precise scope instead of grepping a source tree.
 
+Each scope remains separately addressable. Consumers can retrieve the relevant
+part of the documentation without loading a whole-site text export or recovering
+structure from generated HTML.
+
 ## Quick start
 
 Install Sphinx Lens in the same environment as your documentation and build the

@@ -2,7 +2,7 @@ Project: Sphinx Lens
 
 Repository: https://github.com/mgaitan/sphinx-lens
 
-Description: Semantic extraction and navigation for Sphinx documentation
+Description: Structure-aware indexing and precise navigation for Sphinx documentation
 
 ## Project Scope
 
@@ -78,3 +78,4 @@ Description: Semantic extraction and navigation for Sphinx documentation
 - The public language is English: all committable text and GitHub interactions must be in simple English (including documentation, comments, docstrings, commit messages, PR descriptions, etc.).
 - However, when interacting with the developer in chat, respond in the language they use.
 - Avoid sexist or exclusionary language. Always prefer gender-neutral phrasing.
+- Before producing any written material for this project, read [AI Writing Tropes to Avoid](https://gist.github.com/ossa-ma/f3baa9d25154c33095e22272c631f5a1) and use it as an editing reference. This applies to documentation, README files, code comments and docstrings, UI text, commit messages, issues, pull requests, and release notes.
