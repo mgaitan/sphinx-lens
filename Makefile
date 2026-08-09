@@ -35,7 +35,7 @@ release: ## Create a GitHub release for the current version
 	git push origin main; \
 	gh release create "$$version" --generate-notes
 
-.PHONY: docs docs-html docs-epub docs-open html epub open
+.PHONY: docs docs-html docs-epub docs-open html epub lens open
 
 DOCS_SOURCE := docs
 DOCS_BUILD := $(DOCS_SOURCE)/_build
@@ -54,6 +54,10 @@ epub: docs-epub
 docs-epub: ## Build documentation as EPUB.
 	@echo "📖 Building EPUB documentation"
 	@uv run --group docs sphinx-build $(DOCS_SOURCE) $(DOCS_BUILD)/epub -b epub -W
+
+lens: ## Build the structure-aware Sphinx Lens index.
+	@echo "🔎 Building documentation index"
+	@uv run --group docs sphinx-build $(DOCS_SOURCE) $(DOCS_BUILD)/lens -b lens -W
 
 docs-open open: docs-html ## Build docs and open them in the browser.
 	@uv run -m webbrowser docs/_build/html/index.html

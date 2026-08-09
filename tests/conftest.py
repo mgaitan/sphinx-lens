@@ -41,6 +41,16 @@ Retry policy
 ------------
 
 Retry twice.
+
+Glossary
+--------
+
+See :term:`connection budget`.
+
+.. glossary::
+
+   connection budget
+      The total time allowed for connection attempts.
 """,
         encoding="utf-8",
     )

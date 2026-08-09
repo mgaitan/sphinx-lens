@@ -9,14 +9,18 @@
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/mgaitan/sphinx-lens/blob/main/LICENSE)
 
 
-Semantic extraction and navigation for Sphinx documentation
+Structure-aware indexing and precise navigation for Sphinx documentation.
+
+Sphinx Lens compiles stable references, scoped text, hierarchy, and links for
+coding agents. Its lexical search locates a reference; it does not claim
+embedding-based semantic similarity.
 
 ## Quick Start
 
-Run directly without installing via `uvx`:
+Run from the project's environment so its Sphinx extensions are available:
 
 ```bash
-uvx sphinx-lens --help
+uv run --group docs sphinx-lens --help
 ```
 
 When running from source, we use {term}`PYTHONPATH` in docs examples so the local package is importable without an install step.
@@ -25,11 +29,8 @@ When running from source, we use {term}`PYTHONPATH` in docs examples so the loca
 :hide-command: true
 ```
 
-To install the tool permanently, use:
-
-```bash
-uv tool install sphinx-lens
-```
+The native `lens` builder writes `_build/lens/index.json` alongside other Sphinx
+artifacts. See [Getting Started](getting_started.md) for the complete workflow.
 
 ## Documentation Map (Diataxis)
 
@@ -68,6 +69,7 @@ reference.md
 :caption: Explanation
 
 about_the_docs.md
+design.md
 corpus_evaluation.md
 ```
 

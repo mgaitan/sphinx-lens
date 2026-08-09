@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import runpy
 import sys
 from importlib import metadata
@@ -66,12 +67,33 @@ def test_get_version_package_not_found(mocker):
 
 def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: pytest.CaptureFixture):
     """The CLI builds and queries the same portable index."""
-    output = tmp_path / "lens.json"
+    output = tmp_path / "lens"
     assert main(["build", str(sphinx_project), "--output", str(output)]) == 0
-    assert "Indexed 3 documents" in capsys.readouterr().out
+    build_output = capsys.readouterr().out
+    assert "Indexed 3 documents" in build_output
+    assert "(0 warnings)" in build_output
 
     assert main(["locate", "connection timeout", "--index", str(output), "--limit", "1"]) == 0
     assert "guide#connection-timeout" in capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "locate",
+                "timeout(s)?",
+                "--regex",
+                "--kind",
+                "section",
+                "--json",
+                "--index",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    results = json.loads(capsys.readouterr().out)
+    assert results[0]["entry"]["ref"] == "guide#connection-timeout"
+    assert results[0]["entry"]["location"] == "guide#connection-timeout"
 
     assert main(["inspect", "py:class:demo.Client", "--index", str(output)]) == 0
     assert '"kind": "object"' in capsys.readouterr().out

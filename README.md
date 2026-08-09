@@ -9,29 +9,44 @@
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](https://github.com/mgaitan/sphinx-lens/blob/main/LICENSE)
 
 
-Semantic extraction and navigation for Sphinx documentation
+Structure-aware indexing and precise navigation for Sphinx documentation.
+
+Sphinx Lens gives coding agents a small, portable view of a documentation
+project: stable Sphinx references, scoped text, hierarchy, and the compiled link
+graph. Its search command finds those references; it is lexical, not an
+embedding or LLM search engine.
 
 ## Quick Start
 
-Build a portable semantic index from any Sphinx source tree:
+Install Sphinx Lens in the same environment as the documentation and build the
+index like any other Sphinx artifact:
 
 ```bash
-uvx sphinx-lens build docs/
-uvx sphinx-lens locate "connection timeout" --index docs/
-uvx sphinx-lens inspect py:class:example.Client --index docs/
-uvx sphinx-lens read guide/network#timeouts --index docs/
-uvx sphinx-lens links guide/network#timeouts --index docs/
+sphinx-build -b lens docs/ docs/_build/lens/
+sphinx-lens locate "connection timeout" --index docs/_build/lens/
+sphinx-lens inspect py:class:example.Client --index docs/_build/lens/
+sphinx-lens read guide/network#timeouts --index docs/_build/lens/
+sphinx-lens links guide/network#timeouts --index docs/_build/lens/
 ```
 
-`build` lets Sphinx load the project's formats, extensions, and domains, then
-writes `docs/.sphinx-lens/index.json`. The other commands query that JSON artifact
-without rebuilding the documentation.
+The `lens` builder is discovered through Sphinx's builder entry point; no
+`conf.py` change is required. It loads the project's formats, extensions, and
+domains, then writes `docs/_build/lens/index.json`. Projects can expose this as
+`make lens`; `sphinx-lens build docs/` is the equivalent convenience command.
 
-To install the tool permanently:
+Sphinx executes `conf.py` during every build. Only index projects you trust, and
+run the command in the project's documentation environment so MyST, autodoc,
+themes, and project-specific extensions are importable.
+
+Install the bundled agent skill with
+[Library Skills](https://github.com/tiangolo/library-skills):
 
 ```bash
-uv tool install sphinx-lens
+uvx library-skills install --skill sphinx-lens --yes
 ```
+
+See the [design explanation](docs/design.md) for how Lens differs from
+`objects.inv`, `searchindex.js`, and Sphinx doctrees.
 
 ## Development
 

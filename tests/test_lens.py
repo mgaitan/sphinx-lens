@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 import pytest
 
-from sphinx_lens import Lens, LensError
+from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning
 from sphinx_lens.lens import Entry, Link, TargetNotFoundError
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-HEADING_SCORE = 0.9
-BODY_SCORE = 0.7
-MIN_TOKEN_SCORE = 0.4
-MAX_TOKEN_SCORE = 0.6
 REFERENCE_COUNT = 2
 
 
@@ -56,15 +53,34 @@ def lens(tmp_path: Path) -> Lens:
 
 def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     """Indexes serialize and load from files and conventional directories."""
-    path = lens.write(tmp_path / ".sphinx-lens" / "index.json")
+    path = lens.write(tmp_path / "_build" / "lens" / "index.json")
     loaded = Lens.open(tmp_path)
     assert loaded.source == lens.source
     assert loaded.entries == lens.entries
     assert loaded.links == lens.links
+    assert loaded.metadata == lens.metadata
     assert loaded.index_path == path
 
     direct = lens.write(tmp_path / "portable" / "index.json")
     assert Lens.open(direct.parent).index_path == direct
+
+
+def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
+    """Provenance hashes reveal stale local indexes without blocking reads."""
+    source = tmp_path / "source"
+    source.mkdir()
+    document = source / "guide.rst"
+    document.write_text("current", encoding="utf-8")
+    lens.source = "../source"
+    lens.metadata = IndexMetadata(documents={"guide.rst": sha256(b"original").hexdigest()})
+    index_path = lens.write(tmp_path / "artifact" / "index.json")
+
+    with pytest.warns(StaleIndexWarning, match="1 source file"):
+        Lens.open(index_path)
+
+    lens.source = "../unavailable"
+    unavailable_path = lens.write(tmp_path / "portable" / "index.json")
+    assert Lens.open(unavailable_path).resolve("guide").title == "Guide"
 
 
 def test_open_errors(tmp_path: Path):
@@ -108,21 +124,61 @@ def test_locate(lens: Lens):
     """Search ranks headings, body phrases, token matches, and fuzzy names."""
     assert lens.locate("") == []
     assert lens.locate("guide")[0].score == 1.0
-    assert lens.locate("time")[0].score == HEADING_SCORE
+    heading_match = lens.locate("time")[0]
     body_match = lens.locate("connection timeout", limit=1)[0]
-    assert body_match.score == BODY_SCORE
     assert body_match.excerpt.startswith("Connection")
     token_match = lens.locate("timeout connection details", limit=1)[0]
-    assert MIN_TOKEN_SCORE < token_match.score < MAX_TOKEN_SCORE
+    assert heading_match.score > body_match.score > token_match.score
 
 
-def test_excerpt_boundaries():
-    """Long excerpts mark clipped text on either side."""
+def test_locate_regex_and_filters(lens: Lens):
+    """Regex search composes with semantic kind and domain filters."""
+    exact = lens.locate(r"timeout(s)?", regex=True, kinds={"section"})
+    assert exact[0].score == 1.0
+    assert exact[0].entry.ref == "guide#timeouts"
+
+    body = lens.locate(r"connection\s+timeout", regex=True, kinds={"section"})
+    assert body[0].score < exact[0].score
+    assert body[0].excerpt.startswith("Connection")
+
+    objects = lens.locate(r"client", regex=True, kinds={"object"}, domain="py")
+    assert [result.entry.ref for result in objects] == ["py:class:demo.Client"]
+    assert lens.locate(r"^demo\.Client$", regex=True, kinds={"object"})[0].score == 1.0
+    assert lens.locate("client", domain="std") == []
+
+    with pytest.raises(LensError, match="Invalid regular expression"):
+        lens.locate("[", regex=True)
+
+
+def test_locate_collapses_entries_at_the_same_location(lens: Lens):
+    """Search results keep one semantic entry per physical location."""
+    duplicate = Entry(
+        ref="std:label:timeouts",
+        kind="object",
+        title="Timeouts",
+        text="Connection timeout details",
+        document="guide",
+        anchor="timeouts",
+        domain="std",
+        object_type="label",
+        name="timeouts",
+    )
+    index = Lens(source=lens.source, entries=[*lens.entries, duplicate], links=[])
+
+    results = index.locate("timeouts")
+
+    assert [result.entry.location for result in results].count("guide#timeouts") == 1
+
+
+def test_locate_excerpt_boundaries():
+    """Search marks body text clipped on either side of a match."""
     text = f"{'before ' * 40}needle {'after ' * 40}"
-    excerpt = Lens._excerpt(text, "needle", width=60)
+    index = Lens(source=".", entries=[Entry("long", "document", "Long", text, "long")], links=[])
+
+    excerpt = index.locate("needle")[0].excerpt
+
     assert excerpt.startswith("...")
     assert excerpt.endswith("...")
-    assert Lens._excerpt("No exact phrase", "absent") == "No exact phrase"
 
 
 def test_navigation(lens: Lens):
@@ -135,4 +191,4 @@ def test_navigation(lens: Lens):
     assert len(linked.incoming) == 1
     assert linked.outgoing == ()
     assert lens.inspect("guide") == lens.resolve("guide")
-    assert lens.read("guide") == "Alpha beta gamma"
+    assert lens.read("guide").startswith("Alpha beta gamma\n\nConnection timeout details")

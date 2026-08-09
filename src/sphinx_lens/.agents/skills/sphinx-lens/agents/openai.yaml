@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sphinx Lens"
+  short_description: "Navigate compiled Sphinx documentation precisely"
+  default_prompt: "Use $sphinx-lens to find and read the smallest relevant scope in this Sphinx documentation."
