@@ -21,6 +21,12 @@ single JSON index of documents, sections, and domain objects, each with a stable
 reference and its own scoped text, plus the compiled link graph between them.
 Coding agents get to read one precise scope instead of grepping a source tree.
 
+Sphinx Lens complements [`sphinx-llms-txt`](https://github.com/jdillard/sphinx-llms-txt)
+and [`NVIDIA/sphinx-llm`](https://github.com/NVIDIA/sphinx-llm). Those projects
+publish flat text exports for bulk LLM consumption; Lens retains addressable
+Sphinx structure so agents can retrieve one scope at a time instead of loading
+an entire `llms-full.txt` file or scraping generated HTML.
+
 ## Quick start
 
 Install Sphinx Lens in the same environment as your documentation and build the
