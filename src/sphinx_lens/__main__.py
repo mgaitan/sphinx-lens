@@ -1,4 +1,4 @@
-"""Entry-point module, in case you use `python -m pp3`."""
+"""Run Sphinx Lens as a module."""
 
 import sys
 

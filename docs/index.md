@@ -60,6 +60,7 @@ development_workflow.md
 :caption: Reference
 
 configuration.md
+reference.md
 ```
 
 ```{toctree}
@@ -67,6 +68,7 @@ configuration.md
 :caption: Explanation
 
 about_the_docs.md
+corpus_evaluation.md
 ```
 
 ```{toctree}

@@ -13,11 +13,19 @@ Semantic extraction and navigation for Sphinx documentation
 
 ## Quick Start
 
-Run directly without installing via `uvx`:
+Build a portable semantic index from any Sphinx source tree:
 
 ```bash
-uvx sphinx-lens
+uvx sphinx-lens build docs/
+uvx sphinx-lens locate "connection timeout" --index docs/
+uvx sphinx-lens inspect py:class:example.Client --index docs/
+uvx sphinx-lens read guide/network#timeouts --index docs/
+uvx sphinx-lens links guide/network#timeouts --index docs/
 ```
+
+`build` lets Sphinx load the project's formats, extensions, and domains, then
+writes `docs/.sphinx-lens/index.json`. The other commands query that JSON artifact
+without rebuilding the documentation.
 
 To install the tool permanently:
 

@@ -5,10 +5,14 @@ from __future__ import annotations
 import runpy
 import sys
 from importlib import metadata
+from typing import TYPE_CHECKING
 
 import pytest
 
 from sphinx_lens import get_version, main
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_main():
@@ -58,3 +62,28 @@ def test_get_version_package_not_found(mocker):
         side_effect=metadata.PackageNotFoundError("not found"),
     )
     assert get_version() == "unknown"
+
+
+def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: pytest.CaptureFixture):
+    """The CLI builds and queries the same portable index."""
+    output = tmp_path / "lens.json"
+    assert main(["build", str(sphinx_project), "--output", str(output)]) == 0
+    assert "Indexed 3 documents" in capsys.readouterr().out
+
+    assert main(["locate", "connection timeout", "--index", str(output), "--limit", "1"]) == 0
+    assert "guide#connection-timeout" in capsys.readouterr().out
+
+    assert main(["inspect", "py:class:demo.Client", "--index", str(output)]) == 0
+    assert '"kind": "object"' in capsys.readouterr().out
+
+    assert main(["read", "guide#retry-policy", "--index", str(output)]) == 0
+    assert "Retry twice" in capsys.readouterr().out
+
+    assert main(["links", "guide#connection-timeout", "--index", str(output)]) == 0
+    assert '"outgoing"' in capsys.readouterr().out
+
+
+def test_query_error(capsys: pytest.CaptureFixture):
+    """CLI query failures return a non-zero status."""
+    assert main(["read", "missing", "--index", "/does/not/exist"]) == 1
+    assert "Lens index not found" in capsys.readouterr().err
