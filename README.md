@@ -16,10 +16,10 @@ use: which text belongs to which section, that `django.db.transaction.atomic` is
 a documented object with a canonical name, and where every cross-reference
 points. Then it renders HTML and throws that away.
 
-Sphinx Lens is a Sphinx builder that writes it down instead — a single JSON
-index of documents, sections, and domain objects, each with a stable reference
-and its own scoped text, plus the compiled link graph between them. Coding
-agents get to read one precise scope instead of grepping a source tree.
+Sphinx Lens is a Sphinx builder that writes it down instead. The output is a
+single JSON index of documents, sections, and domain objects, each with a stable
+reference and its own scoped text, plus the compiled link graph between them.
+Coding agents get to read one precise scope instead of grepping a source tree.
 
 ## Quick start
 
@@ -50,8 +50,8 @@ Install the bundled agent skill with
 uvx library-skills install --skill sphinx-lens --yes
 ```
 
-`locate` is lexical, not an embedding or LLM search engine: it finds the right
-reference so that `read` and `links` can do the real work.
+`locate` is lexical. It finds the right reference so that `read` and `links` can
+do the real work; embedding similarity is out of scope.
 
 Full documentation is at <https://mgaitan.github.io/sphinx-lens/>. Start with
 [Getting started](docs/getting_started.md), or read

@@ -11,7 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Self
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 INDEX_FILENAME = "index.json"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
@@ -50,6 +50,7 @@ class Entry:
     text: str
     document: str
     anchor: str = ""
+    order: int = 0
     parent: str | None = None
     domain: str | None = None
     object_type: str | None = None
@@ -59,6 +60,11 @@ class Entry:
     def location(self) -> str:
         """Return the physical document location for this entry."""
         return f"{self.document}#{self.anchor}" if self.anchor else self.document
+
+    @property
+    def sort_key(self) -> tuple[int, str]:
+        """Return the key that restores source order among sibling entries."""
+        return (self.order, self.ref)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +100,7 @@ class Lens:
     def __init__(
         self,
         *,
-        source: str,
+        source: str | None,
         entries: list[Entry],
         links: list[Link],
         metadata: IndexMetadata | None = None,
@@ -157,7 +163,7 @@ class Lens:
         return index_path
 
     def _warn_if_stale(self) -> None:
-        if self.index_path is None or not self.metadata.documents:
+        if self.index_path is None or self.source is None or not self.metadata.documents:
             return
         source_dir = (self.index_path.parent / self.source).resolve()
         if not source_dir.is_dir():
@@ -288,9 +294,9 @@ class Lens:
         return "\n\n".join(parts)
 
     def children(self, target: str) -> tuple[Entry, ...]:
-        """Return direct semantic children of a target."""
+        """Return direct semantic children of a target, in source order."""
         entry = self.resolve(target)
-        return tuple(child for child in self.entries if child.parent == entry.ref)
+        return tuple(self._children(entry.ref))
 
     def references(self, target: str) -> tuple[Link, ...]:
         """Return references originating below a semantic target."""
@@ -305,9 +311,12 @@ class Lens:
         incoming = tuple(link for link in self.links if link.target == entry.location)
         return LinkSet(incoming=incoming, outgoing=outgoing)
 
+    def _children(self, parent: str) -> list[Entry]:
+        return sorted((entry for entry in self.entries if entry.parent == parent), key=lambda entry: entry.sort_key)
+
     def _descendants(self, parent: str) -> list[Entry]:
-        children = [entry for entry in self.entries if entry.parent == parent]
-        return children + [descendant for child in children for descendant in self._descendants(child.ref)]
+        """Return every nested entry below ``parent``, depth first in source order."""
+        return [nested for child in self._children(parent) for nested in (child, *self._descendants(child.ref))]
 
     @staticmethod
     def _search_score(needle: str, heading: str, body: str, *, exact: bool) -> float:

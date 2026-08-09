@@ -78,7 +78,7 @@ objects, which is usually what you want for a lookup like
 ## Read only what you need
 
 Hand a reference to `read` and you get that scope's text, composed from the
-scope and its descendants — not the file it happens to live in:
+scope and its descendants. The file it happens to live in does not come with it:
 
 ```bash
 uv run --group docs sphinx-lens read std:term:PYTHONPATH --index docs/_build/lens/
@@ -88,8 +88,8 @@ A glossary term returns its definition. A section returns that section and its
 subsections. A class returns the class and its methods. This is the difference
 that matters when the consumer is paying by the token.
 
-`inspect` returns the same entry as structured JSON — kind, title, document,
-anchor, parent, domain — when you need the metadata rather than the prose.
+`inspect` returns the same entry as structured JSON (kind, title, document,
+anchor, parent, domain) for when you need the metadata rather than the prose.
 
 ## Follow the graph
 
@@ -100,8 +100,8 @@ gives you both directions of that graph for any reference:
 uv run --group docs sphinx-lens links std:term:GH_TOKEN --index docs/_build/lens/
 ```
 
-That returns the two chapters that mention the term, with the exact section each
-mention came from — not the pages, the sections.
+That returns the two chapters that mention the term, resolved down to the exact
+section each mention came from.
 
 Outgoing links tell you what a scope depends on. Incoming links tell you which
 parts of the documentation consider it relevant, which is often a better ranking
@@ -123,14 +123,14 @@ outgoing = lens.references(section.ref)
 ```
 
 `Lens.open()` also warns when the sources it was built from have changed on
-disk, so a stale index tells you it is stale instead of quietly answering with
-last week's documentation.
+disk, so a stale index says so rather than answering with last week's
+documentation.
 
 [CLI and Python API](reference.md) documents the full surface.
 
 ## Give it to an agent
 
-The package ships an agent skill that teaches a coding agent this workflow —
+The package ships an agent skill that teaches a coding agent this workflow:
 locate, then read the narrowest useful scope, then follow links only if needed.
 From a project that depends on Sphinx Lens:
 
@@ -144,8 +144,8 @@ so it stays in sync with the version you have installed.
 
 ## Next steps
 
-- [How it works](design.md) — the model behind the index and why it is a
+- [How it works](design.md) covers the model behind the index and why it is a
   separate artifact rather than a reuse of `objects.inv` or `searchindex.js`.
-- [Real-world corpora](corpus_evaluation.md) — what happens on Django and
+- [Real-world corpora](corpus_evaluation.md) reports what happens on Django and
   CPython, including the parts that do not work yet.
-- [Development workflow](development_workflow.md) — if you want to contribute.
+- [Development workflow](development_workflow.md) is for contributors.

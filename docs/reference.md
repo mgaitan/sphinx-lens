@@ -102,23 +102,27 @@ object at the same Sphinx anchor can be combined.
 
 ## Index model
 
-The version 2 JSON document contains:
+The version 3 JSON document contains:
 
-- `source`: source directory relative to the artifact.
+- `source`: the source directory relative to the artifact, or `null` when the
+  artifact was written outside the source tree and no relative path would
+  survive being moved.
 - `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
   and a SHA-256 hash for each source document.
-- `entries`: documents, sections, and domain objects with normalized text and
-  parent relationships.
+- `entries`: documents, sections, and domain objects with normalized text,
+  parent relationships, and an `order` recording each entry's position in its
+  document.
 - `links`: internal, external, and unresolved directed references.
 
 `Lens.open()` warns when available local sources no longer match their hashes.
-Missing sources do not prevent a published artifact from loading.
+Missing sources, and a `null` source, do not prevent an artifact from loading.
 
 Documents, sections, and objects store only their own normalized text. `read`
-reconstructs a scope by composing its descendants, avoiding repeated ancestor
-content in search results. Markup distinctions such as code blocks and tables
-are not preserved in version 2.
+reconstructs a scope by composing its descendants in source order, and
+`children` returns them the same way, so a composed page reads top to bottom
+rather than alphabetically. Markup distinctions such as code blocks and tables
+are not preserved.
 
-The index is intentionally a portable intermediate representation. `locate` is
-a reference finder, not semantic similarity search; it does not require Neo4j,
-RDF, an embedding model, or an LLM.
+The index is a portable intermediate representation and nothing more: one JSON
+file, readable without Sphinx, a database, or a model. `locate` is a reference
+finder, not semantic similarity search.

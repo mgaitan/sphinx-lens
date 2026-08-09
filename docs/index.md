@@ -12,21 +12,29 @@
 
 ## The problem
 
-Django's documentation is 674 source files and about 10 MB of prose. When a
-coding agent needs to know how `atomic()` interacts with savepoints, it has two
-bad options. It can grep the sources, which finds the word but not the scope
-that explains it, and returns fragments cut at arbitrary line boundaries. Or it
-can read whole files into its context window, which is expensive, imprecise, and
-tends to bury the relevant paragraph under thousands of irrelevant ones.
+Any documentation project large enough to be worth searching is too large to
+read. Asking it one specific question usually leaves two options, and both are
+bad: grep the sources and get the word without the scope that explains it, or
+read whole files and bury the relevant paragraph under hundreds of others. What
+neither approach has is structure.
 
-Neither option knows that `django.db.transaction.atomic` is a *thing*, that it
-lives in a specific section, that eleven other pages point at it, or that the
-paragraph explaining it ends where the next heading begins.
+Take a concrete case. You want to know whether `atomic()` rolls back to a
+savepoint or to the start of the outermost block. The answer is one paragraph
+somewhere in Django's documentation, which is 674 source files and about 10 MB
+of prose.
 
-Sphinx does know all of that. It parses RST and MyST, expands autodoc, runs the
-project's own extensions, builds a domain inventory of every documented class,
-function, and glossary term, and resolves every cross-reference. Then it renders
-HTML and throws the knowledge away.
+Grep for `atomic` and you get several hundred hits across tutorials, release
+notes, and API tables, with no way to tell which one is the definition. Feed the
+likely files to a model instead and you spend tens of thousands of tokens on
+prose about connection pooling and test runners to reach three sentences.
+
+Sphinx has just finished compiling that same project and knows the answer's
+address. It knows `django.db.transaction.atomic` is a documented function, which
+section documents it, that the section ends where the next heading begins, and
+which other pages cross-reference it. It parsed RST and MyST, ran autodoc and
+the project's own extensions, built a domain inventory of every class, function,
+and glossary term, and resolved every reference to produce that knowledge. Then
+it renders HTML and throws all of it away.
 
 ## What Sphinx Lens does
 
@@ -42,40 +50,43 @@ configuration:
 sphinx-build -b lens docs/ docs/_build/lens/
 ```
 
-From then on, the questions are cheap. Find the reference:
+From then on the questions are cheap. Staying with Django as the example, find
+the reference:
 
 ```console
-$ sphinx-lens locate "database transactions" -i docs/_build/lens --limit 3
+$ sphinx-lens locate "database transactions" -i /tmp/django-lens --limit 3
 1.00  std:label:topics/db/transactions:database transactions
 1.00  topics/db/transactions
 0.90  std:label:topics/db/transactions:managing database transactions
 ```
 
-Read exactly that scope and nothing else:
+Read that scope on its own:
 
 ```console
-$ sphinx-lens read py:function:django.db.transaction.atomic -i docs/_build/lens
+$ sphinx-lens read py:function:django.db.transaction.atomic -i /tmp/django-lens
 ```
 
 Or ask what the rest of the documentation says about it:
 
 ```console
-$ sphinx-lens links py:class:django.db.models.Model -i docs/_build/lens
+$ sphinx-lens links py:class:django.db.models.Model -i /tmp/django-lens
 ```
 
-The unit of retrieval is a documented scope, not a file and not a line range.
-That is the whole idea.
+The unit of retrieval throughout is a documented scope: what the author wrote as
+one idea, addressed by the name the project gave it. That is the whole idea, and
+it applies to a ten-page internal handbook as much as to Django.
 
-## What it is not
+## Scope and limits
 
 `locate` is lexical. It ranks exact names, headings, phrases, and token matches,
-and it accepts regular expressions, but it does not do embedding similarity and
-will not answer a question phrased as a question. It is a way to find the right
-reference quickly; reading and traversing are what the index is really for.
+and it accepts regular expressions. It has no notion of embedding similarity and
+will not answer a question phrased as a question. Its job is to find the right
+reference quickly; reading and traversing are what the index is for.
 
-Sphinx Lens is also not a retrieval framework, an agent runtime, or a second
-Markdown parser. It has one runtime dependency, Sphinx itself, and it writes a
-file you can commit, publish next to your HTML, or pipe through `jq`.
+The scope of the project stops at the index. It has one runtime dependency,
+Sphinx itself, and it writes a file you can commit, publish next to your HTML,
+or pipe through `jq`. Retrieval frameworks, agent runtimes, and servers are all
+things that can be built on top of it.
 
 ## Where to start
 

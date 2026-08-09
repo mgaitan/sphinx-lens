@@ -1,19 +1,18 @@
 # How it works
 
-Sphinx Lens is a builder, not a parser. That single decision explains most of
-what follows.
+Sphinx Lens runs as a Sphinx build. Most of the rest follows from that one
+choice.
 
-Parsing documentation yourself is the obvious approach and the wrong one. A
-Sphinx project is not a pile of RST files: it is RST *and* MyST, expanded by
-autodoc, transformed by a dozen extensions, organized by domains the project may
-have defined itself, with cross-references that only resolve in the context of
-the module or class they appear in. Reimplementing any part of that means
-reimplementing all of it, badly, forever.
+Writing a parser is the obvious approach, and it does not survive contact with
+real projects. A Sphinx project is RST and MyST together, expanded by autodoc,
+transformed by extensions, organized by domains the project may have defined
+itself, with cross-references that only resolve in the context of the module or
+class they appear in. Reimplementing part of that means eventually
+reimplementing all of it.
 
-So Sphinx Lens does not. It runs as a build, after Sphinx has already read every
-source, expanded every extension, populated every domain, and resolved every
-reference. At that point the hard work is done and the job is only to write it
-down.
+So the `lens` builder runs after Sphinx has read every source, expanded every
+extension, populated every domain, and resolved every reference. By then the
+hard work is finished, and what remains is writing it down.
 
 ```{mermaid}
 flowchart LR
@@ -30,14 +29,13 @@ flowchart LR
     H --> I
 ```
 
-The consequence worth naming: the index inherits, for free and permanently,
-every format and extension the project already supports. A project that adds a
-custom domain next year gets that domain in its index without Sphinx Lens
-knowing it exists.
+The index therefore inherits every format and extension the project already
+supports, at no cost. A project that adds a custom domain next year will get
+that domain in its index without Sphinx Lens knowing it exists.
 
-Living under `_build/lens/` follows from the same choice. The index is a build
-output like HTML or linkcheck results, so it inherits their lifecycle — `make
-clean` removes it, CI caches it, and publishing it needs no new convention.
+The output lives under `_build/lens/` for the same reason. It is a build
+artifact like HTML or linkcheck results, so it inherits their lifecycle: `make
+clean` removes it, CI caches it, and publishing it requires no new convention.
 
 ## The model
 
@@ -56,22 +54,22 @@ flowchart TD
 ```
 
 Documents and sections are addressed physically, as `guide/network#timeouts`.
-Domain objects are addressed by meaning, as `py:class:example.Client`, but also
-keep the physical `location` where they are documented. Callers therefore get to
-ask for a thing by name while link traversal stays anchored to real documents —
-and an incoming reference to a section and to the object defined at the same
-anchor can be combined rather than split.
+Domain objects are addressed by meaning, as `py:class:example.Client`, and also
+keep the physical `location` where they are documented. Callers can therefore
+ask for a thing by name while link traversal stays anchored to real documents,
+which is what lets an incoming reference to a section and to the object defined
+at the same anchor be combined instead of split.
 
-Each entry stores **only its own text**, excluding nested sections and objects.
-`read` composes a scope back together by walking the hierarchy. This is not an
-optimization; it is what stops an ancestor and its most specific descendant from
-showing up as two hits for the same paragraph, which is the failure mode that
-makes naive documentation search unusable.
+Each entry stores only its own text, excluding nested sections and objects, and
+`read` composes a scope back together by walking the hierarchy in source order.
+Without that split, a search for a phrase would match the paragraph, the section
+containing it, and the whole document, and all three would compete for the same
+result slot.
 
 ## Why a separate artifact
 
-Sphinx already emits several representations, and the honest question is why
-none of them is enough:
+Sphinx already emits several representations. The honest question is why none of
+them is enough:
 
 | Artifact | What it provides | What Lens adds |
 | --- | --- | --- |
@@ -84,33 +82,32 @@ a caller ask what a scope cites and what cites it without rerunning Sphinx or
 scraping generated HTML.
 
 The text is the honest weakness. `astext()` flattens prose, code blocks, tables,
-and admonitions into the same undifferentiated string, which is a strange thing
-for a structure-aware index to do. Preserving source ranges, and reading back
-original markup instead of normalized text, needs its own design and is the most
-valuable thing a later index version could add.
+and admonitions into one undifferentiated string, which is a strange thing for a
+structure-aware index to do. Entries are addressable and nested; the text inside
+them is flat.
 
 ## Deliberate boundaries
 
-Things this project chooses *not* to do, and why:
+Some things this project chooses to leave out, and why.
 
-**JSON, not Sphinx's pickle.** Unpickling executes project-controlled Python.
-An artifact meant to be published, cached, and read by other processes and other
-languages cannot require that.
+Sphinx stores its environment as a Python pickle, and unpickling it executes
+project-controlled code. An artifact meant to be published, cached, and read by
+other processes and other languages cannot require that, so the index is JSON.
 
-**Lexical search, not embeddings.** `locate` exists to turn a phrase into a
-stable reference so the caller can read and traverse from there. Similarity
-search is a decision for a caller with a model, not a property of an index
-format that should still be readable in five years.
+`locate` is lexical. Its job is to turn a phrase into a stable reference so the
+caller can read and traverse from there. Similarity search belongs to a caller
+that has a model, and building it into the format would date the format.
 
-**Regex and shell composition, not a query language.** `--regex`, `--kind`,
-`--domain`, `--json` and `jq` cover precise and ad hoc analysis. A bespoke query
-language would be a second thing to learn and a second thing to maintain.
+Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`,
+`--json`, and `jq`. A query language of its own would be one more thing to learn
+and one more thing to maintain.
 
-**MCP as an adapter, not the core.** A server over `Lens` is a small amount of
-code. Letting a protocol shape the data model would not be.
+The index is a file. A build produces it, a repository can commit it, and any
+process can read it without a daemon, a port, or credentials. Anything that
+speaks a protocol is an adapter over `Lens`, and adapters do not get to shape
+the data model.
 
-**JSON now, SQLite later.** JSON is auditable, diffable, and greppable, which is
-what a proof of concept needs. Repeated queries against large corpora pay for it
-in parse time, and SQLite with FTS5 is the compatible next store — it also
-replaces the hand-tuned ranking with BM25. A remote libSQL database is a
-deployment detail of that store, not a third format.
+JSON is auditable, diffable, and greppable, which is what an artifact meant to
+be inspected should be. It is also parsed in full on every open, so repeated
+queries against a large corpus pay for that readability in startup time.
+[Real-world corpora](corpus_evaluation.md) measures how much.

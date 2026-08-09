@@ -6,24 +6,25 @@ wrote with Sphinx Lens in mind: this project's own MyST docs, Django, and
 CPython. Between them they cover MyST and RST, the Python and C domains, custom
 domains, autosectionlabel, intersphinx, and project-specific extensions.
 
-Treat these as evidence about extraction quality and retrieval behavior, not as
-a benchmark. Timings come from one machine and mean nothing across machines.
+Treat these as evidence about extraction quality and retrieval behavior. They
+are no kind of benchmark: the timings come from one machine and mean nothing
+across machines.
 
 ## Recorded corpora
 
 | Corpus | Commit | Documents | Sections | Objects | Links | Resolved | Index size |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Sphinx Lens | `0a9a8bd` plus this change | 10 | 50 | 6 | 42 | 100% | 58.8 KB |
-| Django | `c9eb16a87e60c305fb3651459639f647cce498db` | 672 | 6,128 | 7,547 | 22,471 | 96.5% | 18.8 MB |
-| CPython | `998b89020456db591be41e6529b04f4bc8c8181f` | 553 | 5,121 | 19,623 | 57,537 | 96.1% | 35.9 MB |
+| Sphinx Lens | `0a9a8bd` plus this change | 10 | 50 | 6 | 43 | 100% | 60.7 KB |
+| Django | `c9eb16a87e60c305fb3651459639f647cce498db` | 672 | 6,128 | 7,547 | 22,367 | 96.9% | 18.2 MB |
+| CPython | `998b89020456db591be41e6529b04f4bc8c8181f` | 553 | 5,121 | 19,623 | 56,303 | 98.2% | 34.6 MB |
 
 “Resolved” combines internal and external links. Django produced 17,773
-internal, 3,911 external, and 787 unresolved links. CPython produced 48,199
-internal, 7,103 external, and 2,235 unresolved links.
+internal, 3,911 external, and 683 unresolved links. CPython produced 48,198
+internal, 7,103 external, and 1,002 unresolved links.
 
 The runs used Python 3.14.4, Sphinx 9.1.0, and cached Sphinx doctrees when
-available. The observed build times and peak resident memory were 45.4 seconds
-and 285 MB for Django, and 128.9 seconds and 528 MB for CPython.
+available. The observed build times and peak resident memory were 39.9 seconds
+and 287 MB for Django, and 104.6 seconds and 497 MB for CPython.
 
 ## Sphinx Lens: MyST and glossary precision
 
@@ -33,7 +34,7 @@ The project builds its own index without listing `sphinx_lens` in `conf.py`:
 make lens
 ```
 
-All 42 links were classified as internal or external. This specifically checks
+All 43 links were classified as internal or external. This specifically checks
 that MyST document links pass through Sphinx's resolver instead of remaining
 raw `pending_xref` nodes. Reading the glossary object also returns the precise
 definition rather than the complete configuration page:
@@ -114,19 +115,21 @@ c:function:PyObject_GetAttrString   c-api/object#c.PyObject_GetAttrString
 ```
 
 `std:term:global interpreter lock` has 25 incoming links. `asyncio.Task` has 45
-incoming and 46 outgoing links. The GIL query took 1.63 seconds and 151 MB peak
+incoming and 45 outgoing links. The GIL query took 1.63 seconds and 151 MB peak
 resident memory in a new CLI process.
 
 ## Findings and limits
 
 - Sphinx-resolved doctrees handle MyST, contextual domain lookup, and local
-  cross-references more accurately than a Lens-specific resolver.
+  cross-references more accurately than a Lens-specific resolver. Taking the
+  unresolved set from Sphinx's own `missing-reference` event, instead of
+  reconstructing it by matching labels, removed a further 104 false negatives on
+  Django and 1,233 on CPython.
 - Storing only each entry's own text reduced the large-corpus artifacts while
   keeping `read` able to compose complete scopes.
-- JSON remains expensive to parse for repeated queries. SQLite with FTS5 is a
-  likely later backend once the index contract stabilizes.
+- JSON is parsed in full on every open, so a cold process pays roughly a second
+  on these corpora before answering anything.
 - Normalized `astext()` output does not distinguish prose, code, tables, and
-  admonitions. Source ranges and a source-preserving read mode need separate
-  design work.
+  admonitions.
 - Remaining unresolved links include intersphinx and extension-specific targets
   that do not resolve into a local physical location.

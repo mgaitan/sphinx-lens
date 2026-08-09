@@ -14,30 +14,30 @@ change, in the same way a behavioral change without a test is.
 `make docs` runs Sphinx with warnings as errors, so a dead cross-reference, a
 malformed directive, or an orphaned page fails CI rather than shipping quietly.
 
-## Examples are executed, not transcribed
+## Run the examples, do not retype them
 
 Hand-written command output rots. Where a chapter shows a command, prefer
 [richterm](https://github.com/mgaitan/richterm), which runs it during the docs
 build, and [sphinxcontrib-mermaid](https://github.com/mgaitan/sphinxcontrib-mermaid)
 for diagrams that live as text.
 
-Numbers recorded from long or expensive runs — the corpus measurements, for
-example — are the exception. Those are transcribed on purpose, with the commit
-they came from, so they can be re-verified rather than silently re-run.
+Numbers recorded from long or expensive runs, such as the corpus measurements,
+are the exception. Those are transcribed on purpose, with the commit they came
+from, so a reader can re-verify them deliberately.
 
-## Chapters are ordered as a path, not as a taxonomy
+## Order the chapters as a reading path
 
 The chapter order in the sidebar is a reading order: get it running, look
 something up, understand why it is built this way, see what it does under load,
-contribute. [Diataxis](https://diataxis.fr/) informed that shape — a tutorial,
-reference material, and explanation each doing one job — but it is a writing
-tool, not something the reader should have to know about. Do not label chapters
-with their Diataxis mode, and do not split the table of contents into one group
-per mode.
+contribute. [Diataxis](https://diataxis.fr/) informed that shape, giving a
+tutorial, reference material, and explanation each one job to do. It stays a
+writing tool: the reader should never have to know about it. Do not label
+chapters with their Diataxis mode, and do not split the table of contents into
+one group per mode.
 
 Keep environment variable definitions in [Environment variables](configuration.md)
-using the `glossary` directive, and refer to them with `{term}` — for example
-{term}`PYTHONPATH` — so the definition has exactly one home.
+using the `glossary` directive, and refer to them with `{term}` (for example
+{term}`PYTHONPATH`) so the definition has exactly one home.
 
 ## Publishing is automated
 
