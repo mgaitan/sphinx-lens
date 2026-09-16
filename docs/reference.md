@@ -193,6 +193,12 @@ Invoicing
 The canonical guide.
 ```
 
+These fields are docinfo, not hidden frontmatter, and a Sphinx builder or theme
+may render them. Lens does not define a custom directive for hidden RST
+metadata; it exposes the metadata Sphinx already records. Projects that need
+hidden or structured RST metadata should use a Sphinx extension or MyST
+frontmatter instead.
+
 MyST can represent structured values in frontmatter, and Lens stores those
 values as JSON strings. RST fields remain strings, so applications that need
 structured RST metadata should choose a delimiter or encode JSON explicitly.
