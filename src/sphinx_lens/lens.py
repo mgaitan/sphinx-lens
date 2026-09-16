@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import warnings
 from dataclasses import asdict, dataclass, field
@@ -214,7 +215,7 @@ class Lens:
         regex: bool = False,
         kinds: set[str] | None = None,
         domain: str | None = None,
-        under: set[str] | None = None,
+        under: set[str | Path] | None = None,
     ) -> list[SearchResult]:
         """Rank filtered entries using text terms or a regular expression."""
         needle = " ".join(query.casefold().split())
@@ -253,9 +254,10 @@ class Lens:
         entry: Entry,
         kinds: set[str] | None,
         domain: str | None,
-        under: set[str] | None,
+        under: set[str | Path] | None,
     ) -> bool:
-        prefixes = {prefix.rstrip("/") for prefix in under or ()}
+        prefixes = {posixpath.normpath(Path(prefix).as_posix()).strip("/") for prefix in under or ()}
+        prefixes.discard(".")
         return (
             entry.document not in self.no_search
             and (

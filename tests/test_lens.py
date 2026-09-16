@@ -131,6 +131,7 @@ def test_locate(lens: Lens):
     assert heading_match.score > body_match.score > token_match.score
 
     assert lens.locate("connection timeout", under={"api"}) == []
+    assert lens.locate("connection timeout", under={"./guide"}, kinds={"section"})[0].entry.ref == "guide#timeouts"
     assert lens.locate("connection timeout", under={"guide"}, kinds={"section"})[0].entry.ref == "guide#timeouts"
 
     extra = Entry(
