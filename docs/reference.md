@@ -73,10 +73,10 @@ warning-as-error policy. The build summary includes the number of links
 classified as unresolved, for example `(3 unresolved)`.
 
 A local link is `internal` only when its document and anchor are known to the
-built index. A link to an existing document with a missing anchor is therefore
-`unresolved`, rather than silently falling back to the document. Explicit
-anchors on nodes that do not become Lens entries are still recognized as valid
-internal destinations.
+built index. This applies to ordinary references and toctree edges. A link to
+an existing document with a missing anchor is therefore `unresolved`, rather
+than silently falling back to the document. Explicit anchors on nodes that do
+not become Lens entries are still recognized as valid internal destinations.
 
 `locate` normally ranks exact names, headings, body phrases, and unordered token
 matches. Text comparisons fold accents, and supported Sphinx search languages
