@@ -44,6 +44,7 @@ Description: Structure-aware indexing and precise navigation for Sphinx document
 - Never commit or push automatically unless instructed otherwise.
 - Prefer `gh` CLI for all interactions with GitHub if possible. Eg. Use it to open PRs / manage issues.
 - For `gh pr` interactions, prefer `--body-file` with a temporary file created under `/tmp/`.
+- Every pull request body must include a concise summary and an explicit issue relationship: use a closing keyword such as `Fixes #123` when the PR completes an issue, or `Refs #123` when it is related but does not close it. Apply this when creating and editing stacked PRs.
 - To request review from a specific user or agent, use `gh`; for example, `gh pr edit --add-reviewer @copilot`.
 - When a repository defines release targets in `Makefile`, prefer those targets over ad-hoc release commands. Use the repository's release target to run checks and publish a release. When preparing a version-bump PR, use its bump target.
 - For issue categorization, use GitHub labels instead of title prefixes like `Bug:`, `Feat:`, or `Docs:`.
