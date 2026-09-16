@@ -128,6 +128,21 @@ def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
     assert lens.index_path.is_file()
 
 
+def test_build_uses_external_conf_and_doctrees(sphinx_project: Path, tmp_path: Path):
+    """A build can keep its configuration and doctrees outside the source tree."""
+    conf_dir = tmp_path / "conf"
+    conf_dir.mkdir()
+    (conf_dir / "conf.py").write_text('project = "External configuration"\n', encoding="utf-8")
+    output = tmp_path / "artifact" / "lens"
+    doctree_dir = tmp_path / "doctrees"
+
+    lens = build(sphinx_project, output, conf_dir=conf_dir, doctree_dir=doctree_dir)
+
+    assert lens.index_path == output / "index.json"
+    assert doctree_dir.is_dir()
+    assert not (sphinx_project / "_build" / ".doctrees").exists()
+
+
 def test_sphinx_builder(sphinx_project: Path, tmp_path: Path):
     """Sphinx can produce the index as a native builder artifact."""
     output = tmp_path / "lens"

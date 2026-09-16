@@ -56,7 +56,8 @@ in the index and work with `resolve`, `read`, `children`, and `links`; only
 ## CLI
 
 ```text
-sphinx-lens build SOURCE [--output DIRECTORY] [--fail-on-warning]
+sphinx-lens build SOURCE [--output DIRECTORY] [--conf-dir DIRECTORY]
+                    [--doctree-dir DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
                    [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
 sphinx-lens inspect TARGET [--index PATH]
@@ -65,9 +66,11 @@ sphinx-lens links TARGET [--index PATH]
 ```
 
 `sphinx-lens build` is a convenience wrapper around the native builder. It
-writes `SOURCE/_build/lens/index.json` by default. `--fail-on-warning` applies
-Sphinx's warning-as-error policy. The build summary includes the number of
-links classified as unresolved, for example `(3 unresolved)`.
+writes `SOURCE/_build/lens/index.json` by default. Use `--conf-dir` when
+`conf.py` lives outside `SOURCE`, and `--doctree-dir` to keep Sphinx's cached
+doctrees outside the source tree. `--fail-on-warning` applies Sphinx's
+warning-as-error policy. The build summary includes the number of links
+classified as unresolved, for example `(3 unresolved)`.
 
 A local link is `internal` only when its document and anchor are known to the
 built index. A link to an existing document with a missing anchor is therefore

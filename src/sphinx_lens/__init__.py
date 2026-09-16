@@ -38,6 +38,8 @@ def get_parser() -> argparse.ArgumentParser:
     build_parser = subparsers.add_parser("build", help="Compile and index a Sphinx project")
     build_parser.add_argument("source", type=Path)
     build_parser.add_argument("-o", "--output", type=Path)
+    build_parser.add_argument("--conf-dir", type=Path, help="Directory containing conf.py")
+    build_parser.add_argument("--doctree-dir", type=Path, help="Directory for Sphinx doctrees")
     build_parser.add_argument("--fail-on-warning", action="store_true")
 
     locate_parser = subparsers.add_parser("locate", help="Find structured documentation entries")
@@ -86,7 +88,13 @@ def main(args: list[str] | None = None) -> int:
         return 0
     try:
         if opts.command == "build":
-            lens = build(opts.source, opts.output, fail_on_warning=opts.fail_on_warning)
+            lens = build(
+                opts.source,
+                opts.output,
+                fail_on_warning=opts.fail_on_warning,
+                conf_dir=opts.conf_dir,
+                doctree_dir=opts.doctree_dir,
+            )
             counts = {
                 kind: sum(entry.kind == kind for entry in lens.entries) for kind in ("document", "section", "object")
             }

@@ -43,7 +43,13 @@ See {ref}`search-exclusions` for the metadata form and the matching rules.
 
 If you prefer a single command that does not require you to spell out the paths,
 `uv run sphinx-lens build docs/` wraps the same builder and writes to the same
-default location.
+default location. For a corpus whose `conf.py` is stored elsewhere, pass both
+paths explicitly:
+
+```bash
+uv run sphinx-lens build knowledge/ --conf-dir sphinx/ \
+  --doctree-dir /tmp/knowledge-doctrees --output /tmp/knowledge-lens
+```
 
 :::{note}
 Both forms execute your `conf.py`, exactly like `sphinx-build -b html` does.

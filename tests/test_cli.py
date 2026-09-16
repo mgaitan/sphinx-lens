@@ -68,7 +68,23 @@ def test_get_version_package_not_found(mocker):
 def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: pytest.CaptureFixture):
     """The CLI builds and queries the same portable index."""
     output = tmp_path / "lens"
-    assert main(["build", str(sphinx_project), "--output", str(output)]) == 0
+    doctree_dir = tmp_path / "doctrees"
+    assert (
+        main(
+            [
+                "build",
+                str(sphinx_project),
+                "--output",
+                str(output),
+                "--conf-dir",
+                str(sphinx_project),
+                "--doctree-dir",
+                str(doctree_dir),
+            ]
+        )
+        == 0
+    )
+    assert doctree_dir.is_dir()
     build_output = capsys.readouterr().out
     assert "Indexed 3 documents" in build_output
     assert "(0 warnings)" in build_output

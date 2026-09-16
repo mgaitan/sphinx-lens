@@ -147,18 +147,22 @@ def build(
     output: str | Path | None = None,
     *,
     fail_on_warning: bool = False,
+    conf_dir: str | Path | None = None,
+    doctree_dir: str | Path | None = None,
 ) -> Lens:
     """Compile ``source`` and write the builder artifact as a convenience API."""
     source_path = Path(source).resolve()
     output_dir = Path(output).resolve() if output is not None else source_path / DEFAULT_INDEX.parent
+    conf_path = Path(conf_dir).resolve() if conf_dir is not None else source_path
+    doctree_path = Path(doctree_dir).resolve() if doctree_dir is not None else source_path / "_build" / ".doctrees"
     status = StringIO()
     warnings = StringIO()
     try:
         app = Sphinx(
             srcdir=source_path,
-            confdir=source_path,
+            confdir=conf_path,
             outdir=output_dir,
-            doctreedir=source_path / "_build" / ".doctrees",
+            doctreedir=doctree_path,
             buildername="lens",
             status=status,
             warning=warnings,
