@@ -157,7 +157,13 @@ object at the same Sphinx anchor can be combined.
 
 ## Index model
 
-The version 4 JSON document contains:
+The version 4 JSON document contains the following fields:
+
+The index version tracks serialized-schema compatibility, not project maturity.
+Even while Lens is alpha, the version is incremented when index fields or their
+required interpretation change. `Lens.open()` rejects a mismatched version
+instead of silently reading an incompatible artifact; rebuild the index after an
+upgrade that changes the version.
 
 - `source`: the source directory relative to the artifact, or `null` when the
   artifact was written outside the source tree and no relative path would
@@ -172,6 +178,24 @@ The version 4 JSON document contains:
   parent relationships, and an `order` recording each entry's position in its
   document.
 - `links`: internal, external, and unresolved directed references.
+
+RST has no YAML frontmatter block. Use a leading docinfo field list instead;
+Sphinx records custom RST fields as strings:
+
+```rst
+:audience: developers
+:keywords: search, navigation
+:sources: docs, api
+
+Invoicing
+=========
+
+The canonical guide.
+```
+
+MyST can represent structured values in frontmatter, and Lens stores those
+values as JSON strings. RST fields remain strings, so applications that need
+structured RST metadata should choose a delimiter or encode JSON explicitly.
 
 `Lens.document_metadata(target)` resolves a document, section, or domain object
 and returns the metadata for its containing document. `Lens.open()` rejects

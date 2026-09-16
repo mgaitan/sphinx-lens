@@ -27,6 +27,10 @@ def test_build_extracts_semantics(sphinx_project: Path):
     """A Sphinx build becomes a portable document, object, and link index."""
     lens = build(sphinx_project)
 
+    assert lens.document_metadata("guide") == {
+        "audience": "developers",
+        "keywords": "search, navigation",
+    }
     assert lens.index_path == sphinx_project / "_build" / "lens" / "index.json"
     assert len([entry for entry in lens.entries if entry.kind == "document"]) == DOCUMENT_COUNT
     assert {entry.ref for entry in lens.children("guide")} == {
