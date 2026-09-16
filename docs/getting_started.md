@@ -53,7 +53,8 @@ Index projects you trust, from a checkout you control.
 ## Find something
 
 Start with a phrase. `locate` searches titles, canonical names, and scoped body
-text, and returns ranked references:
+text, and returns ranked references. Comparisons ignore accents, and Sphinx's
+stemmer for the configured language makes inflected terms match when available:
 
 ```bash
 uv run --group docs sphinx-lens locate "separate artifact" --index docs/_build/lens/
@@ -78,7 +79,9 @@ uv run --group docs sphinx-lens locate 'TOKEN$' --regex --kind object \
 
 In a project with an API, `--domain py` narrows the same query to Python
 objects, which is usually what you want for a lookup like
-`'QuerySet\.(get|filter)'`. When the corpus has directory-based scopes, add
+`'QuerySet\.(get|filter)'`. The stemming behaviour follows `language` in
+`conf.py`; unsupported languages still get accent folding but no stemming.
+When the corpus has directory-based scopes, add
 `--under PATH`; repeat it to combine subtrees:
 
 ```bash
