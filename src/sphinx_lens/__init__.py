@@ -63,6 +63,8 @@ def get_parser() -> argparse.ArgumentParser:
     ):
         command_parser = subparsers.add_parser(command, help=help_text)
         command_parser.add_argument("target")
+        if command == "inspect":
+            command_parser.add_argument("--no-text", action="store_true", help="Omit the entry text")
         _add_index_argument(command_parser)
     return parser
 
@@ -79,7 +81,7 @@ def _search_result_dict(result: SearchResult) -> dict[str, object]:
     }
 
 
-def main(args: list[str] | None = None) -> int:
+def main(args: list[str] | None = None) -> int:  # noqa: C901
     """Run the main program."""
     parser = get_parser()
     opts = parser.parse_args(args=args)
@@ -122,7 +124,11 @@ def main(args: list[str] | None = None) -> int:
                 for result in results:
                     print(f"{result.score:.2f}\t{result.entry.ref}\t{result.entry.title}\n  {result.excerpt}")
         elif opts.command == "inspect":
-            print(json.dumps(asdict(lens.inspect(opts.target)), indent=2))
+            entry = lens.inspect(opts.target)
+            payload = {**asdict(entry), "location": entry.location}
+            if opts.no_text:
+                payload.pop("text")
+            print(json.dumps(payload, indent=2))
         elif opts.command == "read":
             print(lens.read(opts.target))
         elif opts.command == "links":

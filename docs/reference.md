@@ -60,7 +60,7 @@ sphinx-lens build SOURCE [--output DIRECTORY] [--conf-dir DIRECTORY]
                     [--doctree-dir DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
                    [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
-sphinx-lens inspect TARGET [--index PATH]
+sphinx-lens inspect TARGET [--no-text] [--index PATH]
 sphinx-lens read TARGET [--index PATH]
 sphinx-lens links TARGET [--index PATH]
 ```
@@ -96,6 +96,9 @@ The score is explainable:
 | Unordered terms | Up to `0.69` | Term coverage, heading coverage, and body length |
 
 Regex results use the same exact-name, heading, and body tiers.
+
+`inspect` returns an entry as JSON with its physical `location`. Pass
+`--no-text` to omit the full text when only structural metadata is needed.
 
 ```bash
 sphinx-lens locate "database transactions" --under topics -i docs/_build/lens

@@ -108,8 +108,9 @@ A glossary term returns its definition. A section returns that section and its
 subsections. A class returns the class and its methods. This is the difference
 that matters when the consumer is paying by the token.
 
-`inspect` returns the same entry as structured JSON (kind, title, document,
-anchor, parent, domain) for when you need the metadata rather than the prose.
+`inspect` returns the entry as structured JSON, including its physical `location`,
+for when you need metadata rather than prose. Pass `--no-text` when the entry
+text is not needed.
 
 ## Follow the graph
 

@@ -112,7 +112,12 @@ def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: 
     assert results[0]["entry"]["location"] == "guide#connection-timeout"
 
     assert main(["inspect", "py:class:demo.Client", "--index", str(output)]) == 0
-    assert '"kind": "object"' in capsys.readouterr().out
+    inspect_output = json.loads(capsys.readouterr().out)
+    assert inspect_output["kind"] == "object"
+    assert inspect_output["location"] == "api#demo.Client"
+
+    assert main(["inspect", "py:class:demo.Client", "--no-text", "--index", str(output)]) == 0
+    assert "text" not in json.loads(capsys.readouterr().out)
 
     assert main(["read", "guide#retry-policy", "--index", str(output)]) == 0
     assert "Retry twice" in capsys.readouterr().out
