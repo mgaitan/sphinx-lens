@@ -56,18 +56,21 @@ in the index and work with `resolve`, `read`, `children`, and `links`; only
 ## CLI
 
 ```text
-sphinx-lens build SOURCE [--output DIRECTORY] [--fail-on-warning]
+sphinx-lens build SOURCE [--output DIRECTORY] [--conf-dir DIRECTORY]
+                    [--doctree-dir DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
                    [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
-sphinx-lens inspect TARGET [--index PATH]
+sphinx-lens inspect TARGET [--no-text] [--index PATH]
 sphinx-lens read TARGET [--index PATH]
 sphinx-lens links TARGET [--index PATH]
 ```
 
 `sphinx-lens build` is a convenience wrapper around the native builder. It
-writes `SOURCE/_build/lens/index.json` by default. `--fail-on-warning` applies
-Sphinx's warning-as-error policy. The build summary includes the number of
-links classified as unresolved, for example `(3 unresolved)`.
+writes `SOURCE/_build/lens/index.json` by default. Use `--conf-dir` when
+`conf.py` lives outside `SOURCE`, and `--doctree-dir` to keep Sphinx's cached
+doctrees outside the source tree. `--fail-on-warning` applies Sphinx's
+warning-as-error policy. The build summary includes the number of links
+classified as unresolved, for example `(3 unresolved)`.
 
 A local link is `internal` only when its document and anchor are known to the
 built index. A link to an existing document with a missing anchor is therefore
@@ -93,6 +96,9 @@ The score is explainable:
 | Unordered terms | Up to `0.69` | Term coverage, heading coverage, and body length |
 
 Regex results use the same exact-name, heading, and body tiers.
+
+`inspect` returns an entry as JSON with its physical `location`. Pass
+`--no-text` to omit the full text when only structural metadata is needed.
 
 ```bash
 sphinx-lens locate "database transactions" --under topics -i docs/_build/lens
@@ -145,6 +151,7 @@ results = lens.locate(
     domain="py",
 )
 text = lens.read(entry.ref)
+metadata = lens.document_metadata(entry.ref)
 children = lens.children("guide/network")
 outgoing = lens.references(entry.ref)
 both_directions = lens.linked(entry.ref)
@@ -154,22 +161,75 @@ both_directions = lens.linked(entry.ref)
 Links use physical locations so incoming references to a section and to an
 object at the same Sphinx anchor can be combined.
 
+## Extracted text
+
+Lens stores each entry's own text as a normalized plain-text string. Most docutils
+markup is flattened by `astext()`, including code blocks, tables, and admonitions.
+Images are the deliberate exception: each image is preserved as a Markdown-style
+reference so its destination remains available to consumers:
+
+| Sphinx node | Extracted representation |
+| --- | --- |
+| Image with alternative text | `![Setup diagram](images/setup.svg)` |
+| Image without alternative text | `![](images/logo.svg)` |
+
+The image URI and alternative text are taken from the doctree after Sphinx has
+resolved the document. Lens does not copy or embed the image asset in the index.
+
 ## Index model
 
-The version 3 JSON document contains:
+The version 4 JSON document contains the following fields:
+
+The index version tracks serialized-schema compatibility, not project maturity.
+Even while Lens is alpha, the version is incremented when index fields or their
+required interpretation change. `Lens.open()` rejects a mismatched version
+instead of silently reading an incompatible artifact; rebuild the index after an
+upgrade that changes the version.
 
 - `source`: the source directory relative to the artifact, or `null` when the
   artifact was written outside the source tree and no relative path would
   survive being moved.
 - `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
   configured language, and a SHA-256 hash for each source document.
+- `documents`: a map from document name to its Sphinx title and file-wide
+  metadata. Values are kept as Sphinx recorded them; MyST JSON-encodes
+  non-scalar frontmatter values.
+- `no_search`: document names omitted from `locate` by metadata or configuration.
 - `entries`: documents, sections, and domain objects with normalized text,
   parent relationships, and an `order` recording each entry's position in its
   document.
 - `links`: internal, external, and unresolved directed references.
 
-`Lens.open()` warns when available local sources no longer match their hashes.
-Missing sources, and a `null` source, do not prevent an artifact from loading.
+RST has no YAML frontmatter block. Use a leading docinfo field list instead;
+Sphinx records custom RST fields as strings:
+
+```rst
+:audience: developers
+:keywords: search, navigation
+:sources: docs, api
+
+Invoicing
+=========
+
+The canonical guide.
+```
+
+These fields are docinfo, not hidden frontmatter, and a Sphinx builder or theme
+may render them. Lens does not define a custom directive for hidden RST
+metadata; it exposes the metadata Sphinx already records. Projects that need
+hidden or structured RST metadata should use a Sphinx extension or MyST
+frontmatter instead.
+
+MyST can represent structured values in frontmatter, and Lens stores those
+values as JSON strings. RST fields remain strings, so applications that need
+structured RST metadata should choose a delimiter or encode JSON explicitly.
+
+`Lens.document_metadata(target)` resolves a document, section, or domain object
+and returns the metadata for its containing document. `Lens.open()` rejects
+older index versions with a rebuild message and warns when available local
+sources no longer match their hashes. An index with a `null` source emits a
+`StaleIndexWarning` explaining that the check cannot run; missing sources do not
+prevent an artifact from loading.
 
 Documents, sections, and objects store only their own normalized text. `read`
 reconstructs a scope by composing its descendants in source order, and

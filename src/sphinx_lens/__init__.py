@@ -8,7 +8,17 @@ from importlib import metadata
 from pathlib import Path
 
 from sphinx_lens.extractor import BuildError, LensBuilder, build, setup
-from sphinx_lens.lens import Entry, IndexMetadata, Lens, LensError, Link, LinkSet, SearchResult, StaleIndexWarning
+from sphinx_lens.lens import (
+    DocumentInfo,
+    Entry,
+    IndexMetadata,
+    Lens,
+    LensError,
+    Link,
+    LinkSet,
+    SearchResult,
+    StaleIndexWarning,
+)
 
 
 def get_version() -> str:
@@ -28,6 +38,8 @@ def get_parser() -> argparse.ArgumentParser:
     build_parser = subparsers.add_parser("build", help="Compile and index a Sphinx project")
     build_parser.add_argument("source", type=Path)
     build_parser.add_argument("-o", "--output", type=Path)
+    build_parser.add_argument("--conf-dir", type=Path, help="Directory containing conf.py")
+    build_parser.add_argument("--doctree-dir", type=Path, help="Directory for Sphinx doctrees")
     build_parser.add_argument("--fail-on-warning", action="store_true")
 
     locate_parser = subparsers.add_parser("locate", help="Find structured documentation entries")
@@ -51,6 +63,8 @@ def get_parser() -> argparse.ArgumentParser:
     ):
         command_parser = subparsers.add_parser(command, help=help_text)
         command_parser.add_argument("target")
+        if command == "inspect":
+            command_parser.add_argument("--no-text", action="store_true", help="Omit the entry text")
         _add_index_argument(command_parser)
     return parser
 
@@ -67,7 +81,7 @@ def _search_result_dict(result: SearchResult) -> dict[str, object]:
     }
 
 
-def main(args: list[str] | None = None) -> int:
+def main(args: list[str] | None = None) -> int:  # noqa: C901
     """Run the main program."""
     parser = get_parser()
     opts = parser.parse_args(args=args)
@@ -76,7 +90,13 @@ def main(args: list[str] | None = None) -> int:
         return 0
     try:
         if opts.command == "build":
-            lens = build(opts.source, opts.output, fail_on_warning=opts.fail_on_warning)
+            lens = build(
+                opts.source,
+                opts.output,
+                fail_on_warning=opts.fail_on_warning,
+                conf_dir=opts.conf_dir,
+                doctree_dir=opts.doctree_dir,
+            )
             counts = {
                 kind: sum(entry.kind == kind for entry in lens.entries) for kind in ("document", "section", "object")
             }
@@ -104,7 +124,11 @@ def main(args: list[str] | None = None) -> int:
                 for result in results:
                     print(f"{result.score:.2f}\t{result.entry.ref}\t{result.entry.title}\n  {result.excerpt}")
         elif opts.command == "inspect":
-            print(json.dumps(asdict(lens.inspect(opts.target)), indent=2))
+            entry = lens.inspect(opts.target)
+            payload = {**asdict(entry), "location": entry.location}
+            if opts.no_text:
+                payload.pop("text")
+            print(json.dumps(payload, indent=2))
         elif opts.command == "read":
             print(lens.read(opts.target))
         elif opts.command == "links":
@@ -117,6 +141,7 @@ def main(args: list[str] | None = None) -> int:
 
 __all__ = [
     "BuildError",
+    "DocumentInfo",
     "Entry",
     "IndexMetadata",
     "Lens",

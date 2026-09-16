@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,6 +27,10 @@ def test_build_extracts_semantics(sphinx_project: Path):
     """A Sphinx build becomes a portable document, object, and link index."""
     lens = build(sphinx_project)
 
+    assert lens.document_metadata("guide") == {
+        "audience": "developers",
+        "keywords": "search, navigation",
+    }
     assert lens.index_path == sphinx_project / "_build" / "lens" / "index.json"
     assert len([entry for entry in lens.entries if entry.kind == "document"]) == DOCUMENT_COUNT
     assert {entry.ref for entry in lens.children("guide")} == {
@@ -90,6 +95,10 @@ def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Pat
     assert not {"resource", "countries", "sources", "last_modified"} & set(lens.read("index").split())
     assert [child.ref for child in lens.children("index")] == ["index#certificate"]
     assert lens.locate("Electronic invoicing") == []
+    assert lens.documents["index"].title == "Invoicing"
+    metadata = lens.document_metadata("index")
+    assert metadata["resource"] == "https://example.test/kb/invoicing"
+    assert json.loads(metadata["sources"])[0]["id"] == "kb-1"
 
 
 def test_no_search_documents_remain_navigable(no_search_project: Path):
@@ -103,6 +112,7 @@ def test_no_search_documents_remain_navigable(no_search_project: Path):
     assert [child.ref for child in lens.children("generated")] == ["generated#details"]
     assert any(link.target == "generated" for link in lens.linked("generated").incoming)
     assert any(link.target == "metadata" for link in lens.linked("generated").outgoing)
+    assert lens.document_metadata("metadata")["nosearch"] == "true"
 
     assert lens.resolve("metadata").title == "Metadata"
     assert "Metadata content" in lens.read("metadata")
@@ -116,6 +126,21 @@ def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
     lens = build(sphinx_project, output)
     assert lens.index_path == output / "index.json"
     assert lens.index_path.is_file()
+
+
+def test_build_uses_external_conf_and_doctrees(sphinx_project: Path, tmp_path: Path):
+    """A build can keep its configuration and doctrees outside the source tree."""
+    conf_dir = tmp_path / "conf"
+    conf_dir.mkdir()
+    (conf_dir / "conf.py").write_text('project = "External configuration"\n', encoding="utf-8")
+    output = tmp_path / "artifact" / "lens"
+    doctree_dir = tmp_path / "doctrees"
+
+    lens = build(sphinx_project, output, conf_dir=conf_dir, doctree_dir=doctree_dir)
+
+    assert lens.index_path == output / "index.json"
+    assert doctree_dir.is_dir()
+    assert not (sphinx_project / "_build" / ".doctrees").exists()
 
 
 def test_sphinx_builder(sphinx_project: Path, tmp_path: Path):
@@ -212,6 +237,23 @@ def test_unusual_doctree_nodes():
     assert entries[0].title == "fallback"
     assert entries[1].title == "generated"
     assert anchors.texts[("fallback", "loose-object")] == "loose signature"
+
+
+def test_own_text_preserves_images_as_markdown():
+    """Extracted text keeps image destinations and alternative text visible."""
+    document = new_document("images")
+    paragraph = nodes.paragraph()
+    paragraph += nodes.Text("Read the ")
+    paragraph += nodes.image(uri="images/setup.svg", alt="Setup diagram")
+    paragraph += nodes.Text(" before continuing.")
+    document += paragraph
+    empty_alt = nodes.paragraph()
+    empty_alt += nodes.image(uri="images/logo.svg", alt="")
+    document += empty_alt
+
+    text = extractor._own_text(cast("nodes.Element", document), nested_types=())
+
+    assert text == "Read the ![Setup diagram](images/setup.svg) before continuing.\n\n![](images/logo.svg)"
 
 
 def test_reference_edge_cases():

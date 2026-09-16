@@ -43,7 +43,13 @@ See {ref}`search-exclusions` for the metadata form and the matching rules.
 
 If you prefer a single command that does not require you to spell out the paths,
 `uv run sphinx-lens build docs/` wraps the same builder and writes to the same
-default location.
+default location. For a corpus whose `conf.py` is stored elsewhere, pass both
+paths explicitly:
+
+```bash
+uv run sphinx-lens build knowledge/ --conf-dir sphinx/ \
+  --doctree-dir /tmp/knowledge-doctrees --output /tmp/knowledge-lens
+```
 
 :::{note}
 Both forms execute your `conf.py`, exactly like `sphinx-build -b html` does.
@@ -102,8 +108,9 @@ A glossary term returns its definition. A section returns that section and its
 subsections. A class returns the class and its methods. This is the difference
 that matters when the consumer is paying by the token.
 
-`inspect` returns the same entry as structured JSON (kind, title, document,
-anchor, parent, domain) for when you need the metadata rather than the prose.
+`inspect` returns the entry as structured JSON, including its physical `location`,
+for when you need metadata rather than prose. Pass `--no-text` when the entry
+text is not needed.
 
 ## Follow the graph
 

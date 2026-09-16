@@ -17,7 +17,7 @@ from typing import Any, Self, cast
 from sphinx.search import SearchLanguage
 from sphinx.search import languages as sphinx_languages
 
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 INDEX_FILENAME = "index.json"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
@@ -101,6 +101,14 @@ class IndexMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class DocumentInfo:
+    """Store a document title and the file-wide metadata Sphinx recorded."""
+
+    title: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class Entry:
     """A document, section, or domain object in a Sphinx project."""
 
@@ -166,6 +174,7 @@ class Lens:
         metadata: IndexMetadata | None = None,
         index_path: Path | None = None,
         no_search: set[str] | frozenset[str] = frozenset(),
+        documents: dict[str, DocumentInfo] | None = None,
     ) -> None:
         """Create a Lens from already extracted entries and links."""
         self.source = source
@@ -174,6 +183,7 @@ class Lens:
         self.metadata = metadata or IndexMetadata()
         self.index_path = index_path
         self.no_search = frozenset(no_search)
+        self.documents = documents or {}
         self.warning_count = 0
         self._by_ref = {entry.ref: entry for entry in entries}
 
@@ -190,7 +200,10 @@ class Lens:
             msg = f"Lens index not found: {index_path}"
             raise LensError(msg) from error
         if payload.get("version") != INDEX_VERSION:
-            msg = f"Unsupported Lens index version: {payload.get('version')!r}"
+            msg = (
+                f"Unsupported Lens index version: {payload.get('version')!r}; "
+                "rebuild the index with the current version"
+            )
             raise LensError(msg)
         metadata_payload = payload.get("metadata", {})
         lens = cls(
@@ -207,6 +220,7 @@ class Lens:
             ),
             index_path=index_path,
             no_search=payload.get("no_search", ()),
+            documents={docname: DocumentInfo(**record) for docname, record in payload.get("documents", {}).items()},
         )
         lens._warn_if_stale()
         return lens
@@ -220,6 +234,7 @@ class Lens:
             "source": self.source,
             "metadata": asdict(self.metadata),
             "no_search": sorted(self.no_search),
+            "documents": {docname: asdict(document) for docname, document in sorted(self.documents.items())},
             "entries": [asdict(entry) for entry in self.entries],
             "links": [asdict(link) for link in self.links],
         }
@@ -228,7 +243,14 @@ class Lens:
         return index_path
 
     def _warn_if_stale(self) -> None:
-        if self.index_path is None or self.source is None or not self.metadata.documents:
+        if self.index_path is None or not self.metadata.documents:
+            return
+        if self.source is None:
+            warnings.warn(
+                "Lens index staleness cannot be checked because its source is outside the artifact",
+                StaleIndexWarning,
+                stacklevel=2,
+            )
             return
         source_dir = (self.index_path.parent / self.source).resolve()
         if not source_dir.is_dir():
@@ -373,6 +395,12 @@ class Lens:
         score = 1.0 if exact else 0.9 if heading_match is not None else 0.7
         matched_text = body_match.group() if body_match is not None else ""
         return SearchResult(entry=entry, score=score, excerpt=cls._excerpt(entry.text, matched_text.casefold()))
+
+    def document_metadata(self, target: str) -> dict[str, Any]:
+        """Return Sphinx's file-wide metadata for the document containing ``target``."""
+        entry = self.resolve(target)
+        document = self.documents.get(entry.document)
+        return dict(document.metadata) if document is not None else {}
 
     def inspect(self, target: str) -> Entry:
         """Return structured metadata for a semantic target."""

@@ -22,7 +22,7 @@ from sphinx.errors import SphinxError
 from sphinx.util import logging
 from sphinx.util.matching import Matcher
 
-from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, Entry, IndexMetadata, Lens, LensError, Link
+from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, DocumentInfo, Entry, IndexMetadata, Lens, LensError, Link
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -124,6 +124,7 @@ class LensBuilder(DummyBuilder):
             links=links,
             metadata=_index_metadata(self.env, Path(self.srcdir)),
             no_search=self._no_search,
+            documents=_document_records(self.env),
         )
         index_path = lens.write(Path(self.outdir) / INDEX_FILENAME)
         logger.info("wrote Lens index to %s", index_path)
@@ -146,18 +147,22 @@ def build(
     output: str | Path | None = None,
     *,
     fail_on_warning: bool = False,
+    conf_dir: str | Path | None = None,
+    doctree_dir: str | Path | None = None,
 ) -> Lens:
     """Compile ``source`` and write the builder artifact as a convenience API."""
     source_path = Path(source).resolve()
     output_dir = Path(output).resolve() if output is not None else source_path / DEFAULT_INDEX.parent
+    conf_path = Path(conf_dir).resolve() if conf_dir is not None else source_path
+    doctree_path = Path(doctree_dir).resolve() if doctree_dir is not None else source_path / "_build" / ".doctrees"
     status = StringIO()
     warnings = StringIO()
     try:
         app = Sphinx(
             srcdir=source_path,
-            confdir=source_path,
+            confdir=conf_path,
             outdir=output_dir,
-            doctreedir=source_path / "_build" / ".doctrees",
+            doctreedir=doctree_path,
             buildername="lens",
             status=status,
             warning=warnings,
@@ -200,6 +205,17 @@ def _no_search_documents(environment: BuildEnvironment) -> set[str]:
         if "no-search" in environment.metadata.get(docname, {})
         or "nosearch" in environment.metadata.get(docname, {})
         or matcher(str(environment.doc2path(docname, base=False)))
+    }
+
+
+def _document_records(environment: BuildEnvironment) -> dict[str, DocumentInfo]:
+    """Return each document's title and Sphinx metadata for the index."""
+    return {
+        docname: DocumentInfo(
+            title=environment.titles[docname].astext() if docname in environment.titles else docname,
+            metadata=dict(environment.metadata.get(docname, {})),
+        )
+        for docname in sorted(environment.found_docs)
     }
 
 
@@ -447,6 +463,10 @@ def _own_text(element: nodes.Element, *, nested_types: tuple[type[nodes.Element]
         for nested in list(clone.findall(nested_type)):
             if nested is not clone and nested.parent is not None:
                 nested.parent.remove(nested)
+    for image in clone.findall(nodes.image):
+        alt = str(image.get("alt", ""))
+        uri = str(image.get("uri", ""))
+        image.replace_self(nodes.Text(f"![{alt}]({uri})"))
     return clone.astext().strip()
 
 

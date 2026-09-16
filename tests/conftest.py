@@ -25,7 +25,10 @@ See :doc:`guide`, :class:`demo.Client`, and :class:`Missing`.
         encoding="utf-8",
     )
     (project / "guide.rst").write_text(
-        """Guide
+        """:audience: developers
+:keywords: search, navigation
+
+Guide
 =====
 
 Connection timeout

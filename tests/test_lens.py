@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning
-from sphinx_lens.lens import Entry, Link, TargetNotFoundError, _term_coverage
+from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _term_coverage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +48,15 @@ def lens(tmp_path: Path) -> Lens:
         Link(source="guide#timeouts", target="api#demo.Client", label="client", kind="internal"),
         Link(source="guide#timeouts", target="https://example.com", label="web", kind="external"),
     ]
-    return Lens(source=str(tmp_path), entries=entries, links=links)
+    return Lens(
+        source=str(tmp_path),
+        entries=entries,
+        links=links,
+        documents={
+            "guide": DocumentInfo(title="Guide", metadata={"audience": "developers"}),
+            "api": DocumentInfo(title="API", metadata={"audience": "developers"}),
+        },
+    )
 
 
 def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
@@ -59,6 +67,7 @@ def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     assert loaded.entries == lens.entries
     assert loaded.links == lens.links
     assert loaded.metadata == lens.metadata
+    assert loaded.documents == lens.documents
     assert loaded.index_path == path
 
     direct = lens.write(tmp_path / "portable" / "index.json")
@@ -82,6 +91,11 @@ def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
     unavailable_path = lens.write(tmp_path / "portable" / "index.json")
     assert Lens.open(unavailable_path).resolve("guide").title == "Guide"
 
+    lens.source = None
+    portable_path = lens.write(tmp_path / "portable-no-source" / "index.json")
+    with pytest.warns(StaleIndexWarning, match="cannot be checked"):
+        Lens.open(portable_path)
+
 
 def test_open_errors(tmp_path: Path):
     """Missing and incompatible indexes have actionable errors."""
@@ -91,6 +105,10 @@ def test_open_errors(tmp_path: Path):
     path = tmp_path / "index.json"
     path.write_text(json.dumps({"version": 999}), encoding="utf-8")
     with pytest.raises(LensError, match="Unsupported"):
+        Lens.open(path)
+
+    path.write_text(json.dumps({"version": 3}), encoding="utf-8")
+    with pytest.raises(LensError, match="rebuild"):
         Lens.open(path)
 
 
@@ -200,6 +218,13 @@ def test_locate_folds_accents_and_stems():
     assert results[1].excerpt.startswith("The café")
 
 
+def test_document_metadata_resolves_from_any_entry(lens: Lens):
+    """Document metadata is available for document, section, and object targets."""
+    assert lens.document_metadata("guide") == {"audience": "developers"}
+    assert lens.document_metadata("guide#timeouts") == {"audience": "developers"}
+    assert lens.document_metadata("py:class:demo.Client") == {"audience": "developers"}
+
+
 def test_locate_regex_and_filters(lens: Lens):
     """Regex search composes with semantic kind and domain filters."""
     exact = lens.locate(r"timeout(s)?", regex=True, kinds={"section"})
@@ -246,6 +271,7 @@ def test_locate_excerpt_boundaries():
 
     excerpt = index.locate("needle")[0].excerpt
 
+    assert index.document_metadata("long") == {}
     assert excerpt.startswith("...")
     assert excerpt.endswith("...")
 
