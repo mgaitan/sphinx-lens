@@ -463,6 +463,10 @@ def _own_text(element: nodes.Element, *, nested_types: tuple[type[nodes.Element]
         for nested in list(clone.findall(nested_type)):
             if nested is not clone and nested.parent is not None:
                 nested.parent.remove(nested)
+    for image in clone.findall(nodes.image):
+        alt = str(image.get("alt", ""))
+        uri = str(image.get("uri", ""))
+        image.replace_self(nodes.Text(f"![{alt}]({uri})"))
     return clone.astext().strip()
 
 

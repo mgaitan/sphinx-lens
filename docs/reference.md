@@ -161,6 +161,21 @@ both_directions = lens.linked(entry.ref)
 Links use physical locations so incoming references to a section and to an
 object at the same Sphinx anchor can be combined.
 
+## Extracted text
+
+Lens stores each entry's own text as a normalized plain-text string. Most docutils
+markup is flattened by `astext()`, including code blocks, tables, and admonitions.
+Images are the deliberate exception: each image is preserved as a Markdown-style
+reference so its destination remains available to consumers:
+
+| Sphinx node | Extracted representation |
+| --- | --- |
+| Image with alternative text | `![Setup diagram](images/setup.svg)` |
+| Image without alternative text | `![](images/logo.svg)` |
+
+The image URI and alternative text are taken from the doctree after Sphinx has
+resolved the document. Lens does not copy or embed the image asset in the index.
+
 ## Index model
 
 The version 4 JSON document contains the following fields:

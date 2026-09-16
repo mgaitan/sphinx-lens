@@ -105,7 +105,8 @@ individual scopes.
 The text is the honest weakness. `astext()` flattens prose, code blocks, tables,
 and admonitions into one undifferentiated string, which is a strange thing for a
 structure-aware index to do. Entries are addressable and nested; the text inside
-them is flat.
+them is flat. Image nodes are preserved as Markdown-style `![alt](uri)` tokens so
+search and consumers do not lose the image's destination or alternative text.
 
 ## Deliberate boundaries
 

@@ -239,6 +239,23 @@ def test_unusual_doctree_nodes():
     assert anchors.texts[("fallback", "loose-object")] == "loose signature"
 
 
+def test_own_text_preserves_images_as_markdown():
+    """Extracted text keeps image destinations and alternative text visible."""
+    document = new_document("images")
+    paragraph = nodes.paragraph()
+    paragraph += nodes.Text("Read the ")
+    paragraph += nodes.image(uri="images/setup.svg", alt="Setup diagram")
+    paragraph += nodes.Text(" before continuing.")
+    document += paragraph
+    empty_alt = nodes.paragraph()
+    empty_alt += nodes.image(uri="images/logo.svg", alt="")
+    document += empty_alt
+
+    text = extractor._own_text(cast("nodes.Element", document), nested_types=())
+
+    assert text == "Read the ![Setup diagram](images/setup.svg) before continuing.\n\n![](images/logo.svg)"
+
+
 def test_reference_edge_cases():
     """Raw references and unusual toctrees are classified predictably."""
     assert extractor._reference_target("guide", nodes.reference(refid="local")) == (
