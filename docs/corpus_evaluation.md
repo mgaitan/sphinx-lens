@@ -46,9 +46,11 @@ The project builds its own index without listing `sphinx_lens` in `conf.py`:
 make lens
 ```
 
-All 45 links were classified as internal or external. This specifically checks
-that MyST document links pass through Sphinx's resolver instead of remaining
-raw `pending_xref` nodes. Reading a document also returns its opening prose
+The current index contains 49 links: 28 internal and 21 external, with no
+unresolved links. The historical row above records 45 links from an earlier
+snapshot. This specifically checks that MyST document links pass through Sphinx's
+resolver instead of remaining raw `pending_xref` nodes. Reading a document also
+returns its opening prose
 rather than starting at the first subheading, which is what a MyST corpus makes
 easy to get wrong:
 

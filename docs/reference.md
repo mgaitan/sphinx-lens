@@ -224,6 +224,12 @@ MyST can represent structured values in frontmatter, and Lens stores those
 values as JSON strings. RST fields remain strings, so applications that need
 structured RST metadata should choose a delimiter or encode JSON explicitly.
 
+A link counts as resolved for reporting when its kind is `internal` or `external`.
+An internal link is resolved only when its document and, if present, its anchor
+are known locations in the index. An `unresolved` link has no verified local
+destination. Classifying an absolute URL as `external` does not check whether
+the remote URL is reachable.
+
 `Lens.document_metadata(target)` resolves a document, section, or domain object
 and returns the metadata for its containing document. `Lens.open()` rejects
 older index versions with a rebuild message and warns when available local
