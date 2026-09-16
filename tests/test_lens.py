@@ -169,6 +169,33 @@ def test_locate_folds_accents_and_stems():
     assert [result.entry.ref for result in spanish.locate("deposito")] == ["guide"]
     assert [result.entry.ref for result in spanish.locate("depósito")] == ["guide"]
     assert [result.entry.ref for result in spanish.locate("copio")] == ["guide"]
+    assert spanish.locate("!!!") == []
+
+    accented = Lens(
+        source=".",
+        entries=[
+            Entry(
+                ref="coffee",
+                kind="document",
+                title="Café setup",
+                text="A concise guide.",
+                document="coffee",
+            ),
+            Entry(
+                ref="body",
+                kind="document",
+                title="Other guide",
+                text="The café is useful.",
+                document="body",
+            ),
+        ],
+        links=[],
+    )
+    results = accented.locate("cafe")
+    assert results[0].entry.ref == "coffee"
+    assert results[1].entry.ref == "body"
+    assert results[0].score > results[1].score
+    assert results[1].excerpt.startswith("The café")
 
 
 def test_locate_regex_and_filters(lens: Lens):

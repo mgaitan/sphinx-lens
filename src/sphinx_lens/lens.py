@@ -50,6 +50,8 @@ def _search_words(text: str, language: SearchLanguage | None) -> set[str]:
 
 def _words_match(words: set[str], heading: str, body: str, language: SearchLanguage | None) -> bool:
     """Check unordered query terms against a folded heading and body."""
+    if not words:
+        return False
     if language is None:
         return all(word in f"{heading} {body}" for word in words)
     return words <= _search_words(f"{heading} {body}", language)
@@ -288,11 +290,13 @@ class Lens:
                 and not _words_match(words, folded_heading, folded_body, search_language)
             ):
                 continue
-            heading = heading.casefold()
-            body = body.casefold()
-            exact = needle in {entry.ref.casefold(), entry.title.casefold(), (entry.name or "").casefold()}
-            score = self._search_score(needle, heading, body, exact=exact)
-            results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, needle)))
+            exact = search_needle in {
+                _fold_text(entry.ref),
+                _fold_text(entry.title),
+                _fold_text(entry.name or ""),
+            }
+            score = self._search_score(search_needle, folded_heading, folded_body, exact=exact)
+            results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, search_needle)))
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
 
@@ -400,6 +404,8 @@ class Lens:
     def _excerpt(text: str, needle: str, *, width: int = 180) -> str:
         normalized = " ".join(text.split())
         position = normalized.casefold().find(needle)
+        if position < 0:
+            position = _fold_text(normalized).find(_fold_text(needle))
         position = max(position, 0)
         start = max(0, position - width // 3)
         excerpt = normalized[start : start + width]
