@@ -36,6 +36,11 @@ same place as your HTML, with the same lifecycle. `make clean` removes it along
 with everything else, and CI can cache or publish it the way it already caches
 or publishes builds. This repository exposes the command as `make lens`.
 
+If the project contains generated pages that repeat other content, add their
+source-file globs to `lens_no_search` in `conf.py`. Those documents remain
+available to `resolve`, `read`, `children`, and `links`, but `locate` skips them.
+See {ref}`search-exclusions` for the metadata form and the matching rules.
+
 If you prefer a single command that does not require you to spell out the paths,
 `uv run sphinx-lens build docs/` wraps the same builder and writes to the same
 default location.

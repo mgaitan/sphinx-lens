@@ -100,6 +100,7 @@ def myst_project(tmp_path: Path) -> Path:
     (project / "index.md").write_text(
         """---
 title: Invoicing
+no-search: true
 resource: https://example.test/kb/invoicing
 countries: [AR]
 sources:
@@ -114,6 +115,56 @@ Electronic invoicing needs a certificate before anything else works.
 ## Certificate
 
 Install it from the settings screen.
+""",
+        encoding="utf-8",
+    )
+    return project
+
+
+@pytest.fixture
+def no_search_project(tmp_path: Path) -> Path:
+    """Create a project with metadata and configured no-search documents."""
+    project = tmp_path / "no-search"
+    project.mkdir()
+    (project / "conf.py").write_text(
+        'project = "No Search Fixture"\nlens_no_search = ["generated.rst"]\n',
+        encoding="utf-8",
+    )
+    (project / "index.rst").write_text(
+        """No Search Fixture
+==================
+
+See :doc:`generated` and :doc:`metadata`.
+
+.. toctree::
+
+   generated
+   metadata
+""",
+        encoding="utf-8",
+    )
+    (project / "generated.rst").write_text(
+        """Generated
+=========
+
+Generated content must remain readable.
+
+Details
+-------
+
+The generated page has useful details.
+
+See :doc:`metadata`.
+""",
+        encoding="utf-8",
+    )
+    (project / "metadata.rst").write_text(
+        """:nosearch: true
+
+Metadata
+========
+
+Metadata content must remain readable.
 """,
         encoding="utf-8",
     )

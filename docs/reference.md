@@ -20,6 +20,39 @@ The builder loads the same sources, extensions, domains, objects, and references
 as every other Sphinx build. Its only output is
 `docs/_build/lens/index.json`. A Makefile can expose the command as `make lens`.
 
+(search-exclusions)=
+## Search exclusions
+
+Lens follows Sphinx's file-wide search metadata. Add either `no-search` or
+`nosearch` to a document's metadata to keep it out of `locate` results:
+
+```rst
+:no-search: true
+
+Generated page
+==============
+```
+
+MyST frontmatter uses the same keys:
+
+```md
+---
+no-search: true
+---
+```
+
+Generated documents that cannot carry metadata can be selected in `conf.py`:
+
+```python
+lens_no_search = ["**/index.md"]
+```
+
+Patterns match source-file paths relative to the Sphinx source directory. A
+leading `**/` also matches a file at the source root. Metadata and configured
+globs are additive: either one excludes the document. Excluded documents remain
+in the index and work with `resolve`, `read`, `children`, and `links`; only
+`locate` omits them.
+
 ## CLI
 
 ```text

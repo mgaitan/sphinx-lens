@@ -97,7 +97,7 @@ class LinkSet:
 class Lens:
     """A portable, read-only view of compiled Sphinx structure."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         source: str | None,
@@ -105,6 +105,7 @@ class Lens:
         links: list[Link],
         metadata: IndexMetadata | None = None,
         index_path: Path | None = None,
+        no_search: set[str] | frozenset[str] = frozenset(),
     ) -> None:
         """Create a Lens from already extracted entries and links."""
         self.source = source
@@ -112,6 +113,7 @@ class Lens:
         self.links = tuple(links)
         self.metadata = metadata or IndexMetadata()
         self.index_path = index_path
+        self.no_search = frozenset(no_search)
         self.warning_count = 0
         self._by_ref = {entry.ref: entry for entry in entries}
 
@@ -143,6 +145,7 @@ class Lens:
                 documents=metadata_payload.get("documents", {}),
             ),
             index_path=index_path,
+            no_search=payload.get("no_search", ()),
         )
         lens._warn_if_stale()
         return lens
@@ -155,6 +158,7 @@ class Lens:
             "version": INDEX_VERSION,
             "source": self.source,
             "metadata": asdict(self.metadata),
+            "no_search": sorted(self.no_search),
             "entries": [asdict(entry) for entry in self.entries],
             "links": [asdict(link) for link in self.links],
         }
@@ -243,9 +247,12 @@ class Lens:
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
 
-    @staticmethod
-    def _entry_allowed(entry: Entry, kinds: set[str] | None, domain: str | None) -> bool:
-        return (kinds is None or entry.kind in kinds) and (domain is None or entry.domain == domain)
+    def _entry_allowed(self, entry: Entry, kinds: set[str] | None, domain: str | None) -> bool:
+        return (
+            entry.document not in self.no_search
+            and (kinds is None or entry.kind in kinds)
+            and (domain is None or entry.domain == domain)
+        )
 
     @staticmethod
     def _distinct_results(results: list[SearchResult], limit: int) -> list[SearchResult]:

@@ -89,6 +89,20 @@ def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Pat
     # Sphinx extracts frontmatter into document metadata, so no key reaches the text.
     assert not {"resource", "countries", "sources", "last_modified"} & set(lens.read("index").split())
     assert [child.ref for child in lens.children("index")] == ["index#certificate"]
+    assert lens.locate("Electronic invoicing") == []
+
+
+def test_no_search_documents_remain_navigable(no_search_project: Path):
+    """Search exclusions do not remove documents from navigation or resolution."""
+    lens = build(no_search_project)
+
+    assert lens.locate("Generated content") == []
+    assert lens.locate("Metadata content") == []
+    assert lens.resolve("generated").title == "Generated"
+    assert "Generated content" in lens.read("generated")
+    assert [child.ref for child in lens.children("generated")] == ["generated#details"]
+    assert any(link.target == "generated" for link in lens.linked("generated").incoming)
+    assert any(link.target == "metadata" for link in lens.linked("generated").outgoing)
 
 
 def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):

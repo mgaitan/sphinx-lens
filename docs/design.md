@@ -37,6 +37,10 @@ The output lives under `_build/lens/` for the same reason. It is a build
 artifact like HTML or linkcheck results, so it inherits their lifecycle: `make
 clean` removes it, CI caches it, and publishing it requires no new convention.
 
+Lens also accepts `lens_no_search`, a list of source-file globs for generated
+pages that should remain available through navigation without contributing to
+`locate` results.
+
 ## The model
 
 Three kinds of entry, arranged in a hierarchy, connected by a directed graph.
