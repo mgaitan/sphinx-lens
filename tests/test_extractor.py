@@ -104,6 +104,11 @@ def test_no_search_documents_remain_navigable(no_search_project: Path):
     assert any(link.target == "generated" for link in lens.linked("generated").incoming)
     assert any(link.target == "metadata" for link in lens.linked("generated").outgoing)
 
+    assert lens.resolve("metadata").title == "Metadata"
+    assert "Metadata content" in lens.read("metadata")
+    assert lens.children("metadata") == ()
+    assert any(link.target == "metadata" for link in lens.linked("metadata").incoming)
+
 
 def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
     """The artifact location can live outside the Sphinx source tree."""
