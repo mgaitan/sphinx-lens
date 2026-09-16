@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning
-from sphinx_lens.lens import Entry, Link, TargetNotFoundError
+from sphinx_lens.lens import Entry, Link, TargetNotFoundError, _term_coverage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,6 +129,8 @@ def test_locate(lens: Lens):
     assert body_match.excerpt.startswith("Connection")
     token_match = lens.locate("timeout connection details", limit=1)[0]
     assert heading_match.score > body_match.score > token_match.score
+    assert _term_coverage(set(), "heading", "body", None) == (0.0, 0.0)
+    assert Lens._search_score("needle", "unrelated", "", exact=False) > 0
 
     assert lens.locate("connection timeout", under={"api"}) == []
     assert lens.locate("connection timeout", under={"./guide"}, kinds={"section"})[0].entry.ref == "guide#timeouts"

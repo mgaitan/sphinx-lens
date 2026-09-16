@@ -83,6 +83,17 @@ select documents, sections, or objects; use `--domain py` to restrict domain
 objects. Repeat `--under PATH` to search multiple document subtrees. `--json`
 returns structured results.
 
+The score is explainable:
+
+| Match | Score | Ranking factors |
+| --- | ---: | --- |
+| Exact name | `1.0` | Highest priority |
+| Phrase in heading | `0.9` | Heading match |
+| Phrase in body | `0.55`–`0.70` | Body length |
+| Unordered terms | Up to `0.69` | Term coverage, heading coverage, and body length |
+
+Regex results use the same exact-name, heading, and body tiers.
+
 ```bash
 sphinx-lens locate "database transactions" --under topics -i docs/_build/lens
 sphinx-lens locate 'QuerySet\.(get|filter)' --regex --kind object --domain py \

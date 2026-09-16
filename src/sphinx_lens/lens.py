@@ -57,6 +57,25 @@ def _words_match(words: set[str], heading: str, body: str, language: SearchLangu
     return words <= _search_words(f"{heading} {body}", language)
 
 
+def _term_coverage(
+    words: set[str],
+    heading: str,
+    body: str,
+    language: SearchLanguage | None,
+) -> tuple[float, float]:
+    """Return the fraction of query terms found in the heading and body."""
+    if not words:
+        return 0.0, 0.0
+    if language is None:
+        heading_terms = {word for word in words if word in heading}
+        body_terms = {word for word in words if word in body}
+    else:
+        heading_terms = words & _search_words(heading, language)
+        body_terms = words & _search_words(body, language)
+    count = len(words)
+    return len(heading_terms) / count, len(body_terms) / count
+
+
 class LensError(Exception):
     """Base error raised for invalid Lens operations."""
 
@@ -295,7 +314,13 @@ class Lens:
                 _fold_text(entry.title),
                 _fold_text(entry.name or ""),
             }
-            score = self._search_score(search_needle, folded_heading, folded_body, exact=exact)
+            score = self._search_score(
+                search_needle,
+                folded_heading,
+                folded_body,
+                exact=exact,
+                coverage=_term_coverage(words, folded_heading, folded_body, search_language),
+            )
             results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, search_needle)))
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
@@ -391,13 +416,26 @@ class Lens:
         return [nested for child in self._children(parent) for nested in (child, *self._descendants(child.ref))]
 
     @staticmethod
-    def _search_score(needle: str, heading: str, body: str, *, exact: bool) -> float:
+    def _search_score(
+        needle: str,
+        heading: str,
+        body: str,
+        *,
+        exact: bool,
+        coverage: tuple[float, float] | None = None,
+    ) -> float:
         if exact:
             return 1.0
         if needle in heading:
             return 0.9
         if needle in body:
-            return 0.7
+            length_quality = min(1.0, 40 / max(len(body.split()), 1))
+            return 0.55 + 0.15 * length_quality
+        if coverage is not None:
+            heading_coverage, body_coverage = coverage
+            term_coverage = max(heading_coverage, body_coverage)
+            length_quality = min(1.0, 40 / max(len(body.split()), 1))
+            return min(0.69, 0.34 + 0.2 * term_coverage + 0.1 * heading_coverage + 0.1 * length_quality)
         return 0.4 + 0.2 * SequenceMatcher(None, needle, heading).ratio()
 
     @staticmethod
