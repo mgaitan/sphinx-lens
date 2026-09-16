@@ -149,6 +149,28 @@ def test_locate(lens: Lens):
     }
 
 
+def test_locate_folds_accents_and_stems():
+    """Supported Sphinx languages make accent and inflection variants searchable."""
+    spanish = Lens(
+        source=".",
+        entries=[
+            Entry(
+                ref="guide",
+                kind="document",
+                title="Depósito y copiar usuarios",
+                text="Cómo copiar un grupo de usuarios.",
+                document="guide",
+            )
+        ],
+        links=[],
+        metadata=IndexMetadata(language="es"),
+    )
+
+    assert [result.entry.ref for result in spanish.locate("deposito")] == ["guide"]
+    assert [result.entry.ref for result in spanish.locate("depósito")] == ["guide"]
+    assert [result.entry.ref for result in spanish.locate("copio")] == ["guide"]
+
+
 def test_locate_regex_and_filters(lens: Lens):
     """Regex search composes with semantic kind and domain filters."""
     exact = lens.locate(r"timeout(s)?", regex=True, kinds={"section"})

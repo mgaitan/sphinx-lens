@@ -115,9 +115,10 @@ Sphinx stores its environment as a Python pickle, and unpickling it executes
 project-controlled code. An artifact meant to be published, cached, and read by
 other processes and other languages cannot require that, so the index is JSON.
 
-`locate` is lexical. Its job is to turn a phrase into a stable reference so the
-caller can read and traverse from there. Similarity search belongs to a caller
-that has a model, and building it into the format would date the format.
+`locate` is lexical. It folds accents and uses Sphinx's configured stemmer when
+one exists, then turns a phrase into a stable reference so the caller can read
+and traverse from there. Similarity search belongs to a caller that has a model,
+and building it into the format would date the format.
 
 Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`,
 `--json`, and `jq`. A query language of its own would be one more thing to learn

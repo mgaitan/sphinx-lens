@@ -215,6 +215,7 @@ def _index_metadata(environment: BuildEnvironment, source: Path) -> IndexMetadat
         built_at=datetime.now(UTC).isoformat(),
         git_commit=_git_commit(source),
         documents=documents,
+        language=str(environment.config.language),
     )
 
 

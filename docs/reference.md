@@ -76,10 +76,12 @@ anchors on nodes that do not become Lens entries are still recognized as valid
 internal destinations.
 
 `locate` normally ranks exact names, headings, body phrases, and unordered token
-matches. `--regex` interprets the query as a case-insensitive Python regular
-expression. Repeat `--kind` to select documents, sections, or objects; use
-`--domain py` to restrict domain objects. Repeat `--under PATH` to search
-multiple document subtrees. `--json` returns structured results.
+matches. Text comparisons fold accents, and supported Sphinx search languages
+also compare stemmed terms. `--regex` interprets the query as a case-insensitive
+Python regular expression and keeps literal matching rules. Repeat `--kind` to
+select documents, sections, or objects; use `--domain py` to restrict domain
+objects. Repeat `--under PATH` to search multiple document subtrees. `--json`
+returns structured results.
 
 ```bash
 sphinx-lens locate "database transactions" --under topics -i docs/_build/lens
@@ -149,7 +151,7 @@ The version 3 JSON document contains:
   artifact was written outside the source tree and no relative path would
   survive being moved.
 - `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
-  and a SHA-256 hash for each source document.
+  configured language, and a SHA-256 hash for each source document.
 - `entries`: documents, sections, and domain objects with normalized text,
   parent relationships, and an `order` recording each entry's position in its
   document.

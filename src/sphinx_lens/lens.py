@@ -5,17 +5,54 @@ from __future__ import annotations
 import json
 import posixpath
 import re
+import unicodedata
 import warnings
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
 from hashlib import sha256
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, cast
+
+from sphinx.search import SearchLanguage
+from sphinx.search import languages as sphinx_languages
 
 INDEX_VERSION = 3
 INDEX_FILENAME = "index.json"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
+
+
+def _fold_text(text: str) -> str:
+    """Casefold text and remove combining marks for accent-insensitive search."""
+    normalized = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
+def _search_language(language: str) -> SearchLanguage | None:
+    """Return Sphinx's stemmer for a configured language, when available."""
+    language_class = sphinx_languages.get(language) or sphinx_languages.get(language.partition("_")[0])
+    if language_class is None:
+        return None
+    if isinstance(language_class, str):
+        module, class_name = language_class.rsplit(".", 1)
+        language_class = cast("type[SearchLanguage]", getattr(import_module(module), class_name))
+    return language_class({})
+
+
+def _search_words(text: str, language: SearchLanguage | None) -> set[str]:
+    """Return normalized search terms, stemmed when Sphinx supports the language."""
+    words = language.split(text) if language is not None else text.split()
+    if language is None:
+        return set(words)
+    return {language.stem(word) for word in words}
+
+
+def _words_match(words: set[str], heading: str, body: str, language: SearchLanguage | None) -> bool:
+    """Check unordered query terms against a folded heading and body."""
+    if language is None:
+        return all(word in f"{heading} {body}" for word in words)
+    return words <= _search_words(f"{heading} {body}", language)
 
 
 class LensError(Exception):
@@ -39,6 +76,7 @@ class IndexMetadata:
     built_at: str = ""
     git_commit: str | None = None
     documents: dict[str, str] = field(default_factory=dict)
+    language: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +182,7 @@ class Lens:
                 built_at=metadata_payload.get("built_at", ""),
                 git_commit=metadata_payload.get("git_commit"),
                 documents=metadata_payload.get("documents", {}),
+                language=metadata_payload.get("language", ""),
             ),
             index_path=index_path,
             no_search=payload.get("no_search", ()),
@@ -219,7 +258,8 @@ class Lens:
     ) -> list[SearchResult]:
         """Rank filtered entries using text terms or a regular expression."""
         needle = " ".join(query.casefold().split())
-        if not needle:
+        search_needle = _fold_text(needle)
+        if not search_needle:
             return []
         if regex:
             try:
@@ -227,7 +267,8 @@ class Lens:
             except re.error as error:
                 msg = f"Invalid regular expression: {error}"
                 raise LensError(msg) from error
-        words = needle.split()
+        search_language = _search_language(self.metadata.language)
+        words = _search_words(search_needle, search_language)
         results: list[SearchResult] = []
         for entry in self.entries:
             if not self._entry_allowed(entry, kinds, domain, under):
@@ -239,10 +280,16 @@ class Lens:
                 if result is not None:
                     results.append(result)
                 continue
+            folded_heading = _fold_text(heading)
+            folded_body = _fold_text(body)
+            if (
+                search_needle not in folded_heading
+                and search_needle not in folded_body
+                and not _words_match(words, folded_heading, folded_body, search_language)
+            ):
+                continue
             heading = heading.casefold()
             body = body.casefold()
-            if needle not in heading and needle not in body and not all(word in f"{heading} {body}" for word in words):
-                continue
             exact = needle in {entry.ref.casefold(), entry.title.casefold(), (entry.name or "").casefold()}
             score = self._search_score(needle, heading, body, exact=exact)
             results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, needle)))
