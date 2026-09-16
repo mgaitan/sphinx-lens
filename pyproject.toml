@@ -124,6 +124,7 @@ test = [
     "pytest-freezer>=0.4.9",
     "pytest-mock>=3.15.1",
     "pytest-cov>=7.1.0",
+    "myst-parser>=5.1.0",
 ]
 lint = ["ruff>=0.15.22"]
 qa = [
