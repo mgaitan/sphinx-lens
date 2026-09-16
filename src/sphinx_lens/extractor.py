@@ -137,7 +137,6 @@ def setup(app: Sphinx) -> ExtensionMetadata:
         [],
         "env",
         types=list,
-        description="Document glob patterns excluded from Lens search results.",
     )
     return {"parallel_read_safe": True, "parallel_write_safe": False}
 
