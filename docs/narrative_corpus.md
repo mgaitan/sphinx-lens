@@ -22,7 +22,8 @@ enabled colon fences:
 extensions = ["myst_parser"]
 root_doc = "index"
 exclude_patterns = ["**/assets/**", ".ok/**", "_build/**"]
-colon_fence = True
+language = "es"
+myst_enable_extensions = ["colon_fence"]
 ```
 
 Build it with the native Sphinx command:
@@ -98,7 +99,7 @@ objects because documents and sections remain addressable by their source paths.
 
 ## Measured cost and limits
 
-The Fierro run produced 977 document entries, 1,771 section entries, and no
+The recorded run used Sphinx Lens commit `a7053be`. The Fierro run produced 977 document entries, 1,771 section entries, and no
 domain objects. It contained 2,567 links: 1,752 internal and 815 external. The
 index was 3.4 MB. A cold CLI query took 0.33 seconds and used 50 MB of resident
 memory on the machine that recorded the measurement. At this size, the JSON
