@@ -20,6 +20,7 @@ from sphinx.application import Sphinx
 from sphinx.builders.dummy import DummyBuilder
 from sphinx.errors import SphinxError
 from sphinx.util import logging
+from sphinx.util.matching import Matcher
 
 from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, Entry, IndexMetadata, Lens, LensError, Link
 
@@ -67,6 +68,7 @@ class LensBuilder(DummyBuilder):
         self._links: list[Link] = []
         self._anchors = AnchorIndex()
         self._known_locations: set[str] = set()
+        self._no_search: set[str] = set()
         # Run after resolvers such as intersphinx, so only genuine failures arrive.
         self.events.connect("missing-reference", self._record_missing_reference, priority=1000)
 
@@ -87,6 +89,7 @@ class LensBuilder(DummyBuilder):
         """Read each doctree once, for entries and for the toctree edges."""
         self._entries, self._anchors, self._links = _extract_entries(self.env)
         self._known_locations = {entry.location for entry in self._entries}
+        self._no_search = _no_search_documents(self.env)
 
     def write_doc(self, docname: str, doctree: nodes.document) -> None:
         """Collect the references Sphinx resolved while writing this doctree."""
@@ -120,14 +123,21 @@ class LensBuilder(DummyBuilder):
             entries=self._entries,
             links=links,
             metadata=_index_metadata(self.env, Path(self.srcdir)),
+            no_search=self._no_search,
         )
         index_path = lens.write(Path(self.outdir) / INDEX_FILENAME)
         logger.info("wrote Lens index to %s", index_path)
 
 
 def setup(app: Sphinx) -> ExtensionMetadata:
-    """Register the ``lens`` Sphinx builder."""
+    """Register the `lens` Sphinx builder and its configuration values."""
     app.add_builder(LensBuilder)
+    app.add_config_value(
+        "lens_no_search",
+        [],
+        "env",
+        types=list,
+    )
     return {"parallel_read_safe": True, "parallel_write_safe": False}
 
 
@@ -179,6 +189,18 @@ def _relative_source(source: Path, output: Path) -> str | None:
     if source not in output.parents and output not in source.parents:
         return None
     return Path(relpath(source, output)).as_posix()
+
+
+def _no_search_documents(environment: BuildEnvironment) -> set[str]:
+    """Return documents excluded from search by metadata or configuration."""
+    matcher = Matcher(environment.config.lens_no_search)
+    return {
+        docname
+        for docname in environment.found_docs
+        if "no-search" in environment.metadata.get(docname, {})
+        or "nosearch" in environment.metadata.get(docname, {})
+        or matcher(str(environment.doc2path(docname, base=False)))
+    }
 
 
 def _index_metadata(environment: BuildEnvironment, source: Path) -> IndexMetadata:
@@ -353,8 +375,11 @@ def _resolved_links(
             continue
         source = _link_source(docname, reference, anchors)
         if kind == "internal" and target not in known_locations:
-            target_doc, _separator, _anchor = target.partition("#")
-            if target_doc not in known_locations:
+            target_doc, separator, anchor = target.partition("#")
+            if not separator or (target_doc, anchor) not in anchors.order:
+                # A reference into a document that exists, at an anchor that does
+                # not, is not resolved. Reporting it as internal would hide every
+                # stale anchor in a corpus behind a link that appears to work.
                 kind = "unresolved"
         label = reference.astext()
         yield Link(source=source, target=target, label=label, kind=kind)

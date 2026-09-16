@@ -36,6 +36,11 @@ def get_parser() -> argparse.ArgumentParser:
     locate_parser.add_argument("--regex", action="store_true", help="Interpret QUERY as a Python regular expression")
     locate_parser.add_argument("--kind", action="append", choices=("document", "section", "object"))
     locate_parser.add_argument("--domain", help="Only return objects from this Sphinx domain")
+    locate_parser.add_argument(
+        "--under",
+        action="append",
+        help="Only return entries whose document is in this subtree; repeat to combine subtrees",
+    )
     locate_parser.add_argument("--json", action="store_true", help="Write structured search results")
     _add_index_argument(locate_parser)
 
@@ -75,9 +80,11 @@ def main(args: list[str] | None = None) -> int:
             counts = {
                 kind: sum(entry.kind == kind for entry in lens.entries) for kind in ("document", "section", "object")
             }
+            unresolved = sum(link.kind == "unresolved" for link in lens.links)
             print(
                 f"Indexed {counts['document']} documents, {counts['section']} sections, "
-                f"{counts['object']} objects, and {len(lens.links)} links in {lens.index_path} "
+                f"{counts['object']} objects, and {len(lens.links)} links "
+                f"({unresolved} unresolved) in {lens.index_path} "
                 f"({lens.warning_count} warnings)"
             )
             return 0
@@ -89,6 +96,7 @@ def main(args: list[str] | None = None) -> int:
                 regex=opts.regex,
                 kinds=set(opts.kind) if opts.kind else None,
                 domain=opts.domain,
+                under=set(opts.under) if opts.under else None,
             )
             if opts.json:
                 print(json.dumps([_search_result_dict(result) for result in results], indent=2))

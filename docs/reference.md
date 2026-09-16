@@ -20,12 +20,45 @@ The builder loads the same sources, extensions, domains, objects, and references
 as every other Sphinx build. Its only output is
 `docs/_build/lens/index.json`. A Makefile can expose the command as `make lens`.
 
+(search-exclusions)=
+## Search exclusions
+
+Lens follows Sphinx's file-wide search metadata. Add either `no-search` or
+`nosearch` to a document's metadata to keep it out of `locate` results:
+
+```rst
+:no-search: true
+
+Generated page
+==============
+```
+
+MyST frontmatter uses the same keys:
+
+```md
+---
+no-search: true
+---
+```
+
+Generated documents that cannot carry metadata can be selected in `conf.py`:
+
+```python
+lens_no_search = ["**/index.md"]
+```
+
+Patterns match source-file paths relative to the Sphinx source directory. A
+leading `**/` also matches a file at the source root. Metadata and configured
+globs are additive: either one excludes the document. Excluded documents remain
+in the index and work with `resolve`, `read`, `children`, and `links`; only
+`locate` omits them.
+
 ## CLI
 
 ```text
 sphinx-lens build SOURCE [--output DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
-                   [--regex] [--kind KIND] [--domain DOMAIN] [--json]
+                   [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
 sphinx-lens inspect TARGET [--index PATH]
 sphinx-lens read TARGET [--index PATH]
 sphinx-lens links TARGET [--index PATH]
@@ -33,15 +66,23 @@ sphinx-lens links TARGET [--index PATH]
 
 `sphinx-lens build` is a convenience wrapper around the native builder. It
 writes `SOURCE/_build/lens/index.json` by default. `--fail-on-warning` applies
-Sphinx's warning-as-error policy.
+Sphinx's warning-as-error policy. The build summary includes the number of
+links classified as unresolved, for example `(3 unresolved)`.
+
+A local link is `internal` only when its document and anchor are known to the
+built index. A link to an existing document with a missing anchor is therefore
+`unresolved`, rather than silently falling back to the document. Explicit
+anchors on nodes that do not become Lens entries are still recognized as valid
+internal destinations.
 
 `locate` normally ranks exact names, headings, body phrases, and unordered token
 matches. `--regex` interprets the query as a case-insensitive Python regular
 expression. Repeat `--kind` to select documents, sections, or objects; use
-`--domain py` to restrict domain objects. `--json` returns structured results.
+`--domain py` to restrict domain objects. Repeat `--under PATH` to search
+multiple document subtrees. `--json` returns structured results.
 
 ```bash
-sphinx-lens locate "database transactions" -i docs/_build/lens
+sphinx-lens locate "database transactions" --under topics -i docs/_build/lens
 sphinx-lens locate 'QuerySet\.(get|filter)' --regex --kind object --domain py \
   --json -i docs/_build/lens
 ```

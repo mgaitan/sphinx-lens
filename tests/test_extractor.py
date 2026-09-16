@@ -69,6 +69,16 @@ def test_document_keeps_the_prose_before_its_first_heading(sphinx_project: Path)
     assert lens.resolve("guide").text == "Guide"
 
 
+def test_missing_anchor_is_not_reported_as_resolved(broken_anchor_project: Path):
+    """A reference into a real document at an anchor that does not exist stays unresolved."""
+    lens = build(broken_anchor_project)
+
+    outgoing = {(link.target, link.kind) for link in lens.linked("guide#connection-timeout").outgoing}
+    assert ("guide#gone", "unresolved") in outgoing
+    # The document-level link from the same paragraph still resolves.
+    assert ("guide", "internal") in outgoing
+
+
 def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Path):
     """A MyST article contributes its lede to the index and its frontmatter to nothing."""
     lens = build(myst_project)
@@ -79,6 +89,25 @@ def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Pat
     # Sphinx extracts frontmatter into document metadata, so no key reaches the text.
     assert not {"resource", "countries", "sources", "last_modified"} & set(lens.read("index").split())
     assert [child.ref for child in lens.children("index")] == ["index#certificate"]
+    assert lens.locate("Electronic invoicing") == []
+
+
+def test_no_search_documents_remain_navigable(no_search_project: Path):
+    """Search exclusions do not remove documents from navigation or resolution."""
+    lens = build(no_search_project)
+
+    assert lens.locate("Generated content") == []
+    assert lens.locate("Metadata content") == []
+    assert lens.resolve("generated").title == "Generated"
+    assert "Generated content" in lens.read("generated")
+    assert [child.ref for child in lens.children("generated")] == ["generated#details"]
+    assert any(link.target == "generated" for link in lens.linked("generated").incoming)
+    assert any(link.target == "metadata" for link in lens.linked("generated").outgoing)
+
+    assert lens.resolve("metadata").title == "Metadata"
+    assert "Metadata content" in lens.read("metadata")
+    assert lens.children("metadata") == ()
+    assert any(link.target == "metadata" for link in lens.linked("metadata").incoming)
 
 
 def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
@@ -201,6 +230,8 @@ def test_reference_edge_cases():
     resolved_document = new_document("references-resolved")
     resolved_document += nodes.reference("", "empty")
     resolved_document += nodes.reference("", "missing", refuri="missing.html#part")
+    resolved_document += nodes.reference("", "valid", refuri="guide.html#paragraph")
+    resolved_document += nodes.reference("", "stale", refuri="guide.html#gone")
     description = addnodes.desc()
     content = addnodes.desc_content()
     content += nodes.reference("", "nested", refuri="nested.html")
@@ -208,6 +239,7 @@ def test_reference_edge_cases():
     resolved_document += description
 
     anchors = extractor.AnchorIndex()
+    anchors.order[("guide", "paragraph")] = 0
     links = [
         *extractor._toctree_links("index", raw_document, anchors),
         *extractor._resolved_links("index", resolved_document, anchors, {"index", "guide"}),
@@ -215,6 +247,8 @@ def test_reference_edge_cases():
 
     assert {(link.target, link.kind) for link in links} == {
         ("missing#part", "unresolved"),
+        ("guide#paragraph", "internal"),
+        ("guide#gone", "unresolved"),
         ("nested", "unresolved"),
         ("guide", "internal"),
     }

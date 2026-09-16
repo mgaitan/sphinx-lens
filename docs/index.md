@@ -43,8 +43,8 @@ writes a single JSON index of everything the compiled environment already knows:
 documents, sections, and domain objects, each with a stable reference and its
 own scoped text, plus the full directed graph of cross-references between them.
 
-Building it is a normal Sphinx build, so it costs one command and no
-configuration:
+Building it is a normal Sphinx build. Most projects need no configuration, and
+search exclusions can be declared when generated pages should stay navigable:
 
 ```bash
 sphinx-build -b lens docs/ docs/_build/lens/

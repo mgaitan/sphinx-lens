@@ -130,6 +130,24 @@ def test_locate(lens: Lens):
     token_match = lens.locate("timeout connection details", limit=1)[0]
     assert heading_match.score > body_match.score > token_match.score
 
+    assert lens.locate("connection timeout", under={"api"}) == []
+    assert lens.locate("connection timeout", under={"./guide"}, kinds={"section"})[0].entry.ref == "guide#timeouts"
+    assert lens.locate("connection timeout", under={"guide"}, kinds={"section"})[0].entry.ref == "guide#timeouts"
+
+    extra = Entry(
+        ref="api#timeouts",
+        kind="section",
+        title="API timeouts",
+        text="Connection timeout details",
+        document="api",
+        anchor="timeouts",
+    )
+    combined = Lens(source=lens.source, entries=[*lens.entries, extra], links=[])
+    assert {result.entry.document for result in combined.locate("connection timeout", under={"guide", "api"})} == {
+        "api",
+        "guide",
+    }
+
 
 def test_locate_regex_and_filters(lens: Lens):
     """Regex search composes with semantic kind and domain filters."""

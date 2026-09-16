@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import warnings
 from dataclasses import asdict, dataclass, field
@@ -97,7 +98,7 @@ class LinkSet:
 class Lens:
     """A portable, read-only view of compiled Sphinx structure."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         source: str | None,
@@ -105,6 +106,7 @@ class Lens:
         links: list[Link],
         metadata: IndexMetadata | None = None,
         index_path: Path | None = None,
+        no_search: set[str] | frozenset[str] = frozenset(),
     ) -> None:
         """Create a Lens from already extracted entries and links."""
         self.source = source
@@ -112,6 +114,7 @@ class Lens:
         self.links = tuple(links)
         self.metadata = metadata or IndexMetadata()
         self.index_path = index_path
+        self.no_search = frozenset(no_search)
         self.warning_count = 0
         self._by_ref = {entry.ref: entry for entry in entries}
 
@@ -143,6 +146,7 @@ class Lens:
                 documents=metadata_payload.get("documents", {}),
             ),
             index_path=index_path,
+            no_search=payload.get("no_search", ()),
         )
         lens._warn_if_stale()
         return lens
@@ -155,6 +159,7 @@ class Lens:
             "version": INDEX_VERSION,
             "source": self.source,
             "metadata": asdict(self.metadata),
+            "no_search": sorted(self.no_search),
             "entries": [asdict(entry) for entry in self.entries],
             "links": [asdict(link) for link in self.links],
         }
@@ -202,7 +207,7 @@ class Lens:
             raise LensError(msg)
         raise TargetNotFoundError(name or target)
 
-    def locate(
+    def locate(  # noqa: PLR0913
         self,
         query: str,
         *,
@@ -210,6 +215,7 @@ class Lens:
         regex: bool = False,
         kinds: set[str] | None = None,
         domain: str | None = None,
+        under: set[str | Path] | None = None,
     ) -> list[SearchResult]:
         """Rank filtered entries using text terms or a regular expression."""
         needle = " ".join(query.casefold().split())
@@ -224,7 +230,7 @@ class Lens:
         words = needle.split()
         results: list[SearchResult] = []
         for entry in self.entries:
-            if not self._entry_allowed(entry, kinds, domain):
+            if not self._entry_allowed(entry, kinds, domain, under):
                 continue
             heading = " ".join(filter(None, (entry.ref, entry.title, entry.name)))
             body = " ".join(entry.text.split())
@@ -243,9 +249,24 @@ class Lens:
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
 
-    @staticmethod
-    def _entry_allowed(entry: Entry, kinds: set[str] | None, domain: str | None) -> bool:
-        return (kinds is None or entry.kind in kinds) and (domain is None or entry.domain == domain)
+    def _entry_allowed(
+        self,
+        entry: Entry,
+        kinds: set[str] | None,
+        domain: str | None,
+        under: set[str | Path] | None,
+    ) -> bool:
+        prefixes = {posixpath.normpath(Path(prefix).as_posix()).strip("/") for prefix in under or ()}
+        prefixes.discard(".")
+        return (
+            entry.document not in self.no_search
+            and (
+                not prefixes
+                or any(entry.document == prefix or entry.document.startswith(f"{prefix}/") for prefix in prefixes)
+            )
+            and (kinds is None or entry.kind in kinds)
+            and (domain is None or entry.domain == domain)
+        )
 
     @staticmethod
     def _distinct_results(results: list[SearchResult], limit: int) -> list[SearchResult]:
