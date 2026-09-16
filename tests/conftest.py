@@ -71,3 +71,35 @@ See :term:`connection budget`.
         encoding="utf-8",
     )
     return project
+
+
+@pytest.fixture
+def myst_project(tmp_path: Path) -> Path:
+    """Create a MyST corpus whose articles carry frontmatter, as an exported knowledge base does."""
+    project = tmp_path / "kb"
+    project.mkdir()
+    (project / "conf.py").write_text(
+        'project = "MyST Fixture"\nextensions = ["myst_parser"]\nroot_doc = "index"\n',
+        encoding="utf-8",
+    )
+    (project / "index.md").write_text(
+        """---
+title: Invoicing
+resource: https://example.test/kb/invoicing
+countries: [AR]
+sources:
+- id: kb-1
+  last_modified: '2026-01-31'
+---
+
+# Invoicing
+
+Electronic invoicing needs a certificate before anything else works.
+
+## Certificate
+
+Install it from the settings screen.
+""",
+        encoding="utf-8",
+    )
+    return project

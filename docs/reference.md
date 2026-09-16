@@ -123,6 +123,11 @@ reconstructs a scope by composing its descendants in source order, and
 rather than alphabetically. Markup distinctions such as code blocks and tables
 are not preserved.
 
+A document's own text is its title and the prose before its first subheading.
+Sphinx titles a document from its single top-level section, and that section is
+addressed as the document itself rather than as `document#anchor`, so its prose
+belongs to the document entry and is stored there exactly once.
+
 The index is a portable intermediate representation and nothing more: one JSON
 file, readable without Sphinx, a database, or a model. `locate` is a reference
 finder, not semantic similarity search.

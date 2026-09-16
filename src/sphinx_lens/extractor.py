@@ -244,15 +244,8 @@ def _document_entries(
             anchors.order[(docname, str(element_id))] = position
     title_node = environment.titles.get(docname)
     title = title_node.astext() if title_node is not None else docname
-    entries = [
-        Entry(
-            ref=docname,
-            kind="document",
-            title=title,
-            text=_own_text(doctree, nested_types=(nodes.section, addnodes.desc)),
-            document=docname,
-        )
-    ]
+    document_text = _own_text(doctree, nested_types=(nodes.section, addnodes.desc))
+    sections: list[Entry] = []
     for section in doctree.findall(nodes.section):
         anchor = str(section["ids"][0]) if section.get("ids") else ""
         if not anchor:
@@ -264,19 +257,25 @@ def _document_entries(
         parent = anchors.parents.get((docname, parent_anchor), docname)
         ref = f"{docname}#{anchor}"
         section_ref = docname if parent_section is None and section_title == title else ref
+        section_text = _own_text(section, nested_types=(nodes.section, addnodes.desc))
         if section_ref == ref:
-            entries.append(
+            sections.append(
                 Entry(
                     ref=ref,
                     kind="section",
                     title=section_title,
-                    text=_own_text(section, nested_types=(nodes.section, addnodes.desc)),
+                    text=section_text,
                     document=docname,
                     anchor=anchor,
                     order=anchors.order.get((docname, anchor), 0),
                     parent=parent,
                 )
             )
+        else:
+            # Sphinx titles a document from its lone top-level section, and that
+            # section is addressed as the document itself. Its prose belongs to
+            # the document entry, which would otherwise hold nothing at all.
+            document_text = "\n\n".join(filter(None, (document_text, section_text)))
         for element in section.findall(nodes.Element):
             nested_section = _nearest_section(element)
             if nested_section is not section:
@@ -284,7 +283,8 @@ def _document_entries(
             for element_id in element.get("ids", ()):
                 anchors.parents[(docname, str(element_id))] = section_ref
         anchors.parents[(docname, anchor)] = section_ref
-    return entries
+    document = Entry(ref=docname, kind="document", title=title, text=document_text, document=docname)
+    return [document, *sections]
 
 
 def _domain_entries(domain_objects: Iterable[DomainObject], anchors: AnchorIndex) -> Iterable[Entry]:

@@ -57,6 +57,30 @@ def test_build_extracts_semantics(sphinx_project: Path):
     assert reopened.entries == lens.entries
 
 
+def test_document_keeps_the_prose_before_its_first_heading(sphinx_project: Path):
+    """A document's lede is indexed instead of vanishing with the section that titles it."""
+    lens = build(sphinx_project)
+
+    assert lens.read("index").startswith("Lens Fixture\n\nSee guide")
+    # The prose is stored once: the section addressed as the document gets no entry.
+    assert [entry.ref for entry in lens.entries if entry.document == "index"] == ["index"]
+    assert "index" in {result.entry.ref for result in lens.locate("See guide")}
+    # A document whose lede is empty keeps only what Sphinx titled it with.
+    assert lens.resolve("guide").text == "Guide"
+
+
+def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Path):
+    """A MyST article contributes its lede to the index and its frontmatter to nothing."""
+    lens = build(myst_project)
+
+    document = lens.resolve("index")
+    assert document.title == "Invoicing"
+    assert "Electronic invoicing needs a certificate" in document.text
+    # Sphinx extracts frontmatter into document metadata, so no key reaches the text.
+    assert not {"resource", "countries", "sources", "last_modified"} & set(lens.read("index").split())
+    assert [child.ref for child in lens.children("index")] == ["index#certificate"]
+
+
 def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
     """The artifact location can live outside the Sphinx source tree."""
     output = tmp_path / "artifact" / "lens"

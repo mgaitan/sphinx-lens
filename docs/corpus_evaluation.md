@@ -14,13 +14,18 @@ across machines.
 
 | Corpus | Commit | Documents | Sections | Objects | Links | Resolved | Index size |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Sphinx Lens | `0a9a8bd` plus this change | 10 | 50 | 6 | 43 | 100% | 60.7 KB |
+| Sphinx Lens | `a7053be` plus this change | 10 | 51 | 6 | 45 | 100% | 66.5 KB |
 | Django | `c9eb16a87e60c305fb3651459639f647cce498db` | 672 | 6,128 | 7,547 | 22,367 | 96.9% | 18.2 MB |
 | CPython | `998b89020456db591be41e6529b04f4bc8c8181f` | 553 | 5,121 | 19,623 | 56,303 | 98.2% | 34.6 MB |
 
 “Resolved” combines internal and external links. Django produced 17,773
 internal, 3,911 external, and 683 unresolved links. CPython produced 48,198
 internal, 7,103 external, and 1,002 unresolved links.
+
+The Django and CPython index sizes predate the extraction fix that stores the
+prose a document was titled from, so both are smaller than a current run would
+produce. Entry and link counts are unaffected. Recomputing them is tracked in
+[issue #17](https://github.com/mgaitan/sphinx-lens/issues/17).
 
 The runs used Python 3.14.4, Sphinx 9.1.0, and cached Sphinx doctrees when
 available. The observed build times and peak resident memory were 39.9 seconds
@@ -34,10 +39,21 @@ The project builds its own index without listing `sphinx_lens` in `conf.py`:
 make lens
 ```
 
-All 43 links were classified as internal or external. This specifically checks
+All 45 links were classified as internal or external. This specifically checks
 that MyST document links pass through Sphinx's resolver instead of remaining
-raw `pending_xref` nodes. Reading the glossary object also returns the precise
-definition rather than the complete configuration page:
+raw `pending_xref` nodes. Reading a document also returns its opening prose
+rather than starting at the first subheading, which is what a MyST corpus makes
+easy to get wrong:
+
+```console
+$ sphinx-lens read design -i docs/_build/lens | head -3
+How it works
+
+Sphinx Lens runs as a Sphinx build. Most of the rest follows from that one
+```
+
+Reading the glossary object returns the precise definition rather than the
+complete configuration page:
 
 ```console
 $ sphinx-lens read std:term:PYTHONPATH -i docs/_build/lens
