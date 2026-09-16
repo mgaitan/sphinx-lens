@@ -8,7 +8,17 @@ from importlib import metadata
 from pathlib import Path
 
 from sphinx_lens.extractor import BuildError, LensBuilder, build, setup
-from sphinx_lens.lens import Entry, IndexMetadata, Lens, LensError, Link, LinkSet, SearchResult, StaleIndexWarning
+from sphinx_lens.lens import (
+    DocumentInfo,
+    Entry,
+    IndexMetadata,
+    Lens,
+    LensError,
+    Link,
+    LinkSet,
+    SearchResult,
+    StaleIndexWarning,
+)
 
 
 def get_version() -> str:
@@ -117,6 +127,7 @@ def main(args: list[str] | None = None) -> int:
 
 __all__ = [
     "BuildError",
+    "DocumentInfo",
     "Entry",
     "IndexMetadata",
     "Lens",

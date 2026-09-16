@@ -145,6 +145,7 @@ results = lens.locate(
     domain="py",
 )
 text = lens.read(entry.ref)
+metadata = lens.document_metadata(entry.ref)
 children = lens.children("guide/network")
 outgoing = lens.references(entry.ref)
 both_directions = lens.linked(entry.ref)
@@ -156,20 +157,27 @@ object at the same Sphinx anchor can be combined.
 
 ## Index model
 
-The version 3 JSON document contains:
+The version 4 JSON document contains:
 
 - `source`: the source directory relative to the artifact, or `null` when the
   artifact was written outside the source tree and no relative path would
   survive being moved.
 - `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
   configured language, and a SHA-256 hash for each source document.
+- `documents`: a map from document name to its Sphinx title and file-wide
+  metadata. Values are kept as Sphinx recorded them; MyST JSON-encodes
+  non-scalar frontmatter values.
+- `no_search`: document names omitted from `locate` by metadata or configuration.
 - `entries`: documents, sections, and domain objects with normalized text,
   parent relationships, and an `order` recording each entry's position in its
   document.
 - `links`: internal, external, and unresolved directed references.
 
-`Lens.open()` warns when available local sources no longer match their hashes.
-Missing sources, and a `null` source, do not prevent an artifact from loading.
+`Lens.document_metadata(target)` resolves a document, section, or domain object
+and returns the metadata for its containing document. `Lens.open()` rejects
+older index versions with a rebuild message and warns when available local
+sources no longer match their hashes. Missing sources, and a `null` source, do
+not prevent an artifact from loading.
 
 Documents, sections, and objects store only their own normalized text. `read`
 reconstructs a scope by composing its descendants in source order, and

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -90,6 +91,10 @@ def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Pat
     assert not {"resource", "countries", "sources", "last_modified"} & set(lens.read("index").split())
     assert [child.ref for child in lens.children("index")] == ["index#certificate"]
     assert lens.locate("Electronic invoicing") == []
+    assert lens.documents["index"].title == "Invoicing"
+    metadata = lens.document_metadata("index")
+    assert metadata["resource"] == "https://example.test/kb/invoicing"
+    assert json.loads(metadata["sources"])[0]["id"] == "kb-1"
 
 
 def test_no_search_documents_remain_navigable(no_search_project: Path):
@@ -103,6 +108,7 @@ def test_no_search_documents_remain_navigable(no_search_project: Path):
     assert [child.ref for child in lens.children("generated")] == ["generated#details"]
     assert any(link.target == "generated" for link in lens.linked("generated").incoming)
     assert any(link.target == "metadata" for link in lens.linked("generated").outgoing)
+    assert lens.document_metadata("metadata")["nosearch"] == "true"
 
     assert lens.resolve("metadata").title == "Metadata"
     assert "Metadata content" in lens.read("metadata")

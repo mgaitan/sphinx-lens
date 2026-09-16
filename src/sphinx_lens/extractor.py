@@ -22,7 +22,7 @@ from sphinx.errors import SphinxError
 from sphinx.util import logging
 from sphinx.util.matching import Matcher
 
-from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, Entry, IndexMetadata, Lens, LensError, Link
+from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, DocumentInfo, Entry, IndexMetadata, Lens, LensError, Link
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -124,6 +124,7 @@ class LensBuilder(DummyBuilder):
             links=links,
             metadata=_index_metadata(self.env, Path(self.srcdir)),
             no_search=self._no_search,
+            documents=_document_records(self.env),
         )
         index_path = lens.write(Path(self.outdir) / INDEX_FILENAME)
         logger.info("wrote Lens index to %s", index_path)
@@ -200,6 +201,17 @@ def _no_search_documents(environment: BuildEnvironment) -> set[str]:
         if "no-search" in environment.metadata.get(docname, {})
         or "nosearch" in environment.metadata.get(docname, {})
         or matcher(str(environment.doc2path(docname, base=False)))
+    }
+
+
+def _document_records(environment: BuildEnvironment) -> dict[str, DocumentInfo]:
+    """Return each document's title and Sphinx metadata for the index."""
+    return {
+        docname: DocumentInfo(
+            title=environment.titles[docname].astext() if docname in environment.titles else docname,
+            metadata=dict(environment.metadata.get(docname, {})),
+        )
+        for docname in sorted(environment.found_docs)
     }
 
 
