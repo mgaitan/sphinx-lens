@@ -266,7 +266,12 @@ def test_reference_edge_cases():
 
     raw_document = new_document("references")
     toctree = addnodes.toctree()
-    toctree["entries"] = [("This page", "self"), ("External", "https://example.com"), (None, "guide")]
+    toctree["entries"] = [
+        ("This page", "self"),
+        ("External", "https://example.com"),
+        (None, "guide"),
+        ("Missing", "missing"),
+    ]
     raw_document += toctree
 
     resolved_document = new_document("references-resolved")
@@ -283,11 +288,12 @@ def test_reference_edge_cases():
     anchors = extractor.AnchorIndex()
     anchors.order[("guide", "paragraph")] = 0
     links = [
-        *extractor._toctree_links("index", raw_document, anchors),
+        *extractor._toctree_links("index", raw_document, anchors, {"index", "guide"}),
         *extractor._resolved_links("index", resolved_document, anchors, {"index", "guide"}),
     ]
 
     assert {(link.target, link.kind) for link in links} == {
+        ("missing", "unresolved"),
         ("missing#part", "unresolved"),
         ("guide#paragraph", "internal"),
         ("guide#gone", "unresolved"),

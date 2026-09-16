@@ -73,10 +73,10 @@ warning-as-error policy. The build summary includes the number of links
 classified as unresolved, for example `(3 unresolved)`.
 
 A local link is `internal` only when its document and anchor are known to the
-built index. A link to an existing document with a missing anchor is therefore
-`unresolved`, rather than silently falling back to the document. Explicit
-anchors on nodes that do not become Lens entries are still recognized as valid
-internal destinations.
+built index. This applies to ordinary references and toctree edges. A link to
+an existing document with a missing anchor is therefore `unresolved`, rather
+than silently falling back to the document. Explicit anchors on nodes that do
+not become Lens entries are still recognized as valid internal destinations.
 
 `locate` normally ranks exact names, headings, body phrases, and unordered token
 matches. Text comparisons fold accents, and supported Sphinx search languages
@@ -178,27 +178,49 @@ resolved the document. Lens does not copy or embed the image asset in the index.
 
 ## Index model
 
-The version 4 JSON document contains the following fields:
+The version 4 JSON document has these top-level fields:
 
-The index version tracks serialized-schema compatibility, not project maturity.
-Even while Lens is alpha, the version is incremented when index fields or their
-required interpretation change. `Lens.open()` rejects a mismatched version
-instead of silently reading an incompatible artifact; rebuild the index after an
-upgrade that changes the version.
+| Field | JSON type | Contract |
+| --- | --- | --- |
+| `version` | integer | The payload schema version. Current value: `4`. |
+| `source` | string or `null` | Source directory relative to the artifact, or `null` when no portable relative path exists. |
+| `metadata` | object | Build metadata and source-document hashes; see the table below. |
+| `no_search` | array of strings | Document names omitted from `locate`. |
+| `documents` | object | Map from document name to its title and Sphinx metadata. |
+| `entries` | array of objects | Documents, sections, and domain objects. |
+| `links` | array of objects | Internal, external, and unresolved directed references. |
 
-- `source`: the source directory relative to the artifact, or `null` when the
-  artifact was written outside the source tree and no relative path would
-  survive being moved.
-- `metadata`: Sphinx version, configured extensions, UTC build time, Git commit,
-  configured language, and a SHA-256 hash for each source document.
-- `documents`: a map from document name to its Sphinx title and file-wide
-  metadata. Values are kept as Sphinx recorded them; MyST JSON-encodes
-  non-scalar frontmatter values.
-- `no_search`: document names omitted from `locate` by metadata or configuration.
-- `entries`: documents, sections, and domain objects with normalized text,
-  parent relationships, and an `order` recording each entry's position in its
-  document.
-- `links`: internal, external, and unresolved directed references.
+`metadata` contains:
+
+| Field | JSON type | Contract |
+| --- | --- | --- |
+| `sphinx_version` | string | Sphinx version used for the build. |
+| `extensions` | array of strings | Extensions enabled in the Sphinx environment. |
+| `built_at` | string | UTC build timestamp in ISO 8601 format. |
+| `git_commit` | string or `null` | Git commit found at the source root, when available. |
+| `documents` | object | Map from source-relative document path to its SHA-256 hash. |
+| `language` | string | Sphinx's configured search language. |
+
+Each value in `documents` has a `title` string and a `metadata` object. The
+metadata is kept as Sphinx recorded it; MyST JSON-encodes non-scalar frontmatter
+values. Each object in `entries` has the following fields:
+
+| Field | JSON type | Contract |
+| --- | --- | --- |
+| `ref`, `kind`, `title`, `text`, `document` | strings | Stable reference, entry kind, display title, own normalized text, and containing document. |
+| `anchor` | string | Physical anchor, or empty for a document. |
+| `order` | integer | Position used to restore source order among siblings. |
+| `parent` | string or `null` | Reference of the containing entry. |
+| `domain`, `object_type`, `name` | string or `null` | Domain-object fields; `null` for documents and sections. |
+
+Each object in `links` has four string fields: `source`, `target`, `label`, and
+`kind`. `Entry.location` is derived from `document` and `anchor`, so it is not a
+separate field in the JSON payload.
+
+The `version` field applies to the complete payload. An incompatible schema change
+increments it; `Lens.open()` accepts only the current version and raises
+`LensError` with a rebuild message for older artifacts. Readers must not silently
+reinterpret an older payload as version 4.
 
 RST has no YAML frontmatter block. Use a leading docinfo field list instead;
 Sphinx records custom RST fields as strings:
@@ -223,6 +245,12 @@ frontmatter instead.
 MyST can represent structured values in frontmatter, and Lens stores those
 values as JSON strings. RST fields remain strings, so applications that need
 structured RST metadata should choose a delimiter or encode JSON explicitly.
+
+A link counts as resolved for reporting when its kind is `internal` or `external`.
+An internal link is resolved only when its document and, if present, its anchor
+are known locations in the index. An `unresolved` link has no verified local
+destination. Classifying an absolute URL as `external` does not check whether
+the remote URL is reachable.
 
 `Lens.document_metadata(target)` resolves a document, section, or domain object
 and returns the metadata for its containing document. `Lens.open()` rejects

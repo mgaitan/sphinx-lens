@@ -261,10 +261,13 @@ def _extract_entries(
         for name, display_name, object_type, docname, anchor, priority in domain.get_objects()
     ]
 
-    for docname in sorted(environment.found_docs):
-        doctree = environment.get_doctree(docname)
+    doctrees = {docname: environment.get_doctree(docname) for docname in sorted(environment.found_docs)}
+    for docname, doctree in doctrees.items():
         entries.extend(_document_entries(environment, docname, doctree, anchors))
-        links.extend(_toctree_links(docname, doctree, anchors))
+
+    known_locations = {entry.location for entry in entries}
+    for docname, doctree in doctrees.items():
+        links.extend(_toctree_links(docname, doctree, anchors, known_locations))
 
     objects = list(_domain_entries(domain_objects, anchors))
     entries.extend(_nest_objects(objects))
@@ -368,14 +371,16 @@ def _toctree_links(
     docname: str,
     doctree: nodes.document,
     anchors: AnchorIndex,
+    known_locations: set[str],
 ) -> Iterable[Link]:
-    """Yield the edges a toctree declares, which resolution replaces with navigation."""
+    """Yield toctree edges and classify missing document targets as unresolved."""
     for toctree in doctree.findall(addnodes.toctree):
         source = _link_source(docname, toctree, anchors)
         for title, target_doc in toctree.get("entries", ()):
             if target_doc == "self" or "://" in target_doc:
                 continue
-            yield Link(source=source, target=target_doc, label=title or target_doc, kind="internal")
+            kind = "internal" if target_doc in known_locations else "unresolved"
+            yield Link(source=source, target=target_doc, label=title or target_doc, kind=kind)
 
 
 def _resolved_links(

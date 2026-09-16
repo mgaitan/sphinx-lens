@@ -94,8 +94,9 @@ New here? [Getting started](getting_started.md) builds an index and queries it
 in a few minutes. If you would rather see whether the idea holds up first,
 [How it works](design.md) explains the model,
 [Index a narrative corpus](narrative_corpus.md) covers article-based knowledge
-bases, and [Real-world corpora](corpus_evaluation.md) reports what it does to
-Django and CPython.
+bases, [Troubleshooting](troubleshooting.md) covers common build symptoms, and
+[Real-world corpora](corpus_evaluation.md) reports what it does to Django and
+CPython.
 
 ```{toctree}
 :maxdepth: 2
@@ -104,6 +105,7 @@ getting_started.md
 reference.md
 design.md
 narrative_corpus.md
+troubleshooting.md
 corpus_evaluation.md
 configuration.md
 development_workflow.md
