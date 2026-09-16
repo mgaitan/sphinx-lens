@@ -69,6 +69,16 @@ def test_document_keeps_the_prose_before_its_first_heading(sphinx_project: Path)
     assert lens.resolve("guide").text == "Guide"
 
 
+def test_missing_anchor_is_not_reported_as_resolved(sphinx_project: Path):
+    """A reference into a real document at an anchor that does not exist stays unresolved."""
+    lens = build(sphinx_project)
+
+    outgoing = {(link.target, link.kind) for link in lens.linked("guide#connection-timeout").outgoing}
+    assert ("guide#gone", "unresolved") in outgoing
+    # The document-level link from the same paragraph still resolves.
+    assert ("guide", "internal") in outgoing
+
+
 def test_myst_document_keeps_its_prose_without_its_frontmatter(myst_project: Path):
     """A MyST article contributes its lede to the index and its frontmatter to nothing."""
     lens = build(myst_project)
@@ -201,6 +211,7 @@ def test_reference_edge_cases():
     resolved_document = new_document("references-resolved")
     resolved_document += nodes.reference("", "empty")
     resolved_document += nodes.reference("", "missing", refuri="missing.html#part")
+    resolved_document += nodes.reference("", "stale", refuri="guide.html#gone")
     description = addnodes.desc()
     content = addnodes.desc_content()
     content += nodes.reference("", "nested", refuri="nested.html")
@@ -215,6 +226,7 @@ def test_reference_edge_cases():
 
     assert {(link.target, link.kind) for link in links} == {
         ("missing#part", "unresolved"),
+        ("guide#gone", "unresolved"),
         ("nested", "unresolved"),
         ("guide", "internal"),
     }

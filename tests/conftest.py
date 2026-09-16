@@ -35,6 +35,8 @@ Configure the connection timeout before creating a :class:`demo.Client`.
 
 See :ref:`retry-policy`, `Python <https://python.org>`_, and `HTML guide <guide.html>`_.
 
+The anchor in `this one <guide.html#gone>`_ no longer exists.
+
 .. _retry-policy:
 
 Retry policy

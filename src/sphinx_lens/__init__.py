@@ -75,9 +75,11 @@ def main(args: list[str] | None = None) -> int:
             counts = {
                 kind: sum(entry.kind == kind for entry in lens.entries) for kind in ("document", "section", "object")
             }
+            unresolved = sum(link.kind == "unresolved" for link in lens.links)
             print(
                 f"Indexed {counts['document']} documents, {counts['section']} sections, "
-                f"{counts['object']} objects, and {len(lens.links)} links in {lens.index_path} "
+                f"{counts['object']} objects, and {len(lens.links)} links "
+                f"({unresolved} unresolved) in {lens.index_path} "
                 f"({lens.warning_count} warnings)"
             )
             return 0
