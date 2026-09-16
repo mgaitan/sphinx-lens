@@ -1,121 +1,130 @@
 # Index a narrative corpus
 
 Sphinx Lens also works when a documentation tree is a collection of articles
-rather than an API reference. This matters for support manuals, runbooks, and
-knowledge bases: the useful unit is usually a paragraph or a section, and the
-source files may not have domain objects or a complete table of contents.
+rather than an API reference. This matters for manuals, runbooks, and other
+prose-heavy documentation: the useful unit is usually a paragraph or a section,
+and source paths often provide useful retrieval context.
 
-This chapter uses a recorded run against the Fierro knowledge base as a concrete
-example. The corpus contains 977 Markdown files: 795 articles with frontmatter
-and 182 generated `index.md` files. It is mostly Spanish, so the language notes
-below describe that corpus rather than the English examples used elsewhere in
-this documentation.
+This chapter uses a reproducible run against the public
+[MyST-Parser documentation](https://github.com/executablebooks/MyST-Parser/tree/723cffcf84213f0cb58695b27eec9ad72052b53a).
+The pinned commit is `723cffcf84213f0cb58695b27eec9ad72052b53a`. Its 28 Markdown
+documents cover getting started, syntax, reference material, FAQs, and project
+development. The corpus contains both narrative sections and 73 standard
+objects, so it also shows how article-oriented retrieval works when a corpus is
+not limited to one object domain.
 
 ## Build the corpus without changing its sources
 
-Keep the Sphinx configuration outside an exported content tree when the export
-must remain untouched. A minimal configuration for the recorded run enabled
-MyST, selected `index` as the root document, excluded assets and `.ok/`, and
-enabled colon fences:
-
-```python
-extensions = ["myst_parser"]
-root_doc = "index"
-exclude_patterns = ["**/assets/**", ".ok/**", "_build/**"]
-language = "es"
-myst_enable_extensions = ["colon_fence"]
-```
-
-Build it with the native Sphinx command:
+Clone the public repository and check out the recorded commit:
 
 ```bash
-sphinx-build -b lens -c /tmp/kb-lens-conf \
-  ~/lambda/kb/knowledge /tmp/kb-lens-out
+git clone https://github.com/executablebooks/MyST-Parser /tmp/myst-parser-public
+git -C /tmp/myst-parser-public checkout 723cffcf84213f0cb58695b27eec9ad72052b53a
 ```
 
-The output is one `index.json` file. The source tree is read by Sphinx, but Lens
-does not need to modify it to index the documents.
+Keep the Sphinx configuration outside the source tree when the exported content
+must remain untouched. The configuration used for the recorded run was:
 
-## A toctree is optional
+```python
+project = "MyST Parser documentation"
+root_doc = "index"
+language = "en"
+extensions = ["myst_parser"]
+exclude_patterns = ["_build"]
+myst_enable_extensions = [
+    "colon_fence",
+    "deflist",
+    "dollarmath",
+    "fieldlist",
+    "tasklist",
+]
+```
+
+Build the index with the configuration and doctree directories outside the
+corpus:
+
+```bash
+uv run sphinx-lens build /tmp/myst-parser-public/docs \
+  --output /tmp/myst-lens-out \
+  --conf-dir /tmp/myst-lens-conf \
+  --doctree-dir /tmp/myst-lens-doctrees
+```
+
+The output is one `index.json` file. Sphinx reads the source tree, but Lens does
+not need to modify it to index the documents.
+
+## A complete toctree is optional
 
 Lens extracts documents from Sphinx's `env.found_docs`, not only from documents
-reachable through a `toctree`. A corpus can therefore contain articles that are
-not listed in navigation and still make them available to `resolve`, `read`, and
-`locate`.
+reachable through a `toctree`. The MyST-Parser documentation has root and nested
+toctrees, but the same extraction rule applies to a corpus with incomplete
+navigation: documents that Sphinx discovers remain available to `resolve`,
+`read`, and `locate`.
 
-Sphinx reports `toc.not_included` for documents that no toctree includes. In the
-recorded run, 976 of 1,553 build warnings had this cause. These warnings describe
-a navigation gap, not an indexing failure. If the project intentionally has no
-complete toctree, suppress that warning in the external configuration:
+The recorded build emitted 203 warnings. Review those warnings separately from
+the index output; a navigation warning describes a Sphinx documentation issue,
+while it does not by itself show that Lens failed to extract a document. If a
+project intentionally leaves some documents outside its navigation tree, the
+external configuration can suppress the corresponding Sphinx warning:
 
 ```python
 suppress_warnings = ["toc.not_included"]
 ```
 
-The remaining warnings then identify content problems that need attention rather
-than expected consequences of the corpus layout. Do not add a synthetic toctree
-only to make the warning disappear: a toctree contributes navigation links, but
-it does not create parent relationships between separate document entries in the
-Lens index.
+Do not add a synthetic toctree only to make a warning disappear. A toctree adds
+navigation links, but it does not create parent relationships between separate
+document entries in the Lens index.
 
 ## Search in the corpus language
 
 `locate` is lexical search. It compares titles, references, headings, and the
-text stored for each scope. It folds accents, so `deposito` and `depósito` are
-compared consistently. When the Sphinx configuration records a supported search
-language, Lens also compares stemmed terms; this lets inflected forms such as
-`copio` and `copiar` match when the configured language provides a stemmer.
-Unsupported languages still get accent folding, but no stemming.
-
-Search with content words instead of a complete support question. For example,
-use the distinctive terms from a procedure:
+text stored for each scope. It folds accents, and when the Sphinx configuration
+records a supported search language, Lens also compares stemmed terms. The
+recorded corpus uses English, so the search configuration matches its source
+text:
 
 ```bash
-sphinx-lens locate "connection timeout" \
-  --index /tmp/kb-lens-out --limit 5
+sphinx-lens locate "cross-referencing" \
+  --index /tmp/myst-lens-out --limit 5
 ```
 
-A question phrased with vocabulary absent from the article cannot be recovered by
-lexical search alone. Read the narrowest returned section, then follow its links
-when the procedure depends on another scope. `read` composes descendants in
-source order, which preserves the article flow without sending the whole corpus
-to a consumer.
+Use content words instead of a complete support question. A question phrased
+with vocabulary absent from an article cannot be recovered by lexical search
+alone. Read the narrowest returned section, then follow its links when the
+procedure depends on another scope. `read` composes descendants in source
+order, which preserves the article flow without sending the whole corpus to a
+consumer.
 
 ## Use document paths as a taxonomy
 
-Metadata can describe a document, but a directory prefix is often a more stable
-query boundary for an exported knowledge base. Use `--under` when the corpus
-already groups articles by product area, module, or country:
+Metadata can describe a document, but a directory prefix is often a stable query
+boundary for documentation organized by topic. Use `--under` to restrict a
+query to one or more source subtrees:
 
 ```bash
-sphinx-lens locate "connection timeout" \
-  --under guides --under reference \
-  --index /tmp/kb-lens-out
+sphinx-lens locate "cross-referencing" \
+  --under syntax --index /tmp/myst-lens-out
 ```
 
 Repeated `--under` values form a union. The filter composes with `--kind`,
-`--domain`, and `--regex`. This is useful even when the corpus has zero domain
+`--domain`, and `--regex`. This is useful even when a corpus has few domain
 objects because documents and sections remain addressable by their source paths.
 
 ## Measured cost and limits
 
-The recorded run used Sphinx Lens commit `a7053be`. The Fierro run produced 977 document entries, 1,771 section entries, and no
-domain objects. It contained 2,567 links: 1,752 internal and 815 external. The
-index was 3.4 MB. A cold CLI query took 0.33 seconds and used 50 MB of resident
-memory on the machine that recorded the measurement. At this size, the JSON
-artifact is small enough for ordinary build and query workflows; repeated CLI
-invocations still parse the complete file on every process start.
+The recorded run used Sphinx Lens commit `a7053be` with Sphinx 9.1.0. It produced
+28 document entries, 239 section entries, and 73 object entries. The index
+contained 541 links: 184 internal, 349 external, and 8 unresolved. The measured
+resolution rate was 98.5%, and the JSON artifact was 419,972 bytes (about
+410 KB).
 
-Extraction quality remains separate from index size. Before the document-lede
-fix, all 977 document entries had empty own text and 420 documents had no text
-anywhere in the index. The fix makes the prose before a document's first
-subheading available. Images are retained as Markdown-style `![alt](uri)` text,
-but Lens does not describe an image whose source has no useful alternative text.
-A consumer should report that dependency rather than infer what a screenshot
-contains.
+`unresolved` means that Lens could not verify a local target or could not resolve
+the reference. This classification does not test whether an external URL is
+reachable. The CLI parses the complete JSON index on every process start, so
+repeated queries should account for index loading as well as search work.
 
 A narrative corpus benefits from the same retrieval loop as an API corpus: find
 a reference, read its narrowest scope, and traverse only the links needed to
-understand it. The difference is where the structure comes from. Domain names
-may be absent, so source paths, headings, and the document metadata supplied by
-Sphinx carry more of the retrieval context.
+understand it. The difference is where the structure comes from. Domain objects
+may be sparse or absent, so source paths, headings, and the document metadata
+supplied by Sphinx carry more of the retrieval context.
