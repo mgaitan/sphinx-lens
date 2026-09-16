@@ -27,8 +27,12 @@ before deciding whether to suppress it:
   proof that every link works.
 
 Use `-W` with `sphinx-build` or `fail_on_warning=True` with the Python API when
-warnings must fail the build. Suppress only categories that are expected for the
-corpus; otherwise keep the warning in the build output and in the index metrics.
+warnings must fail the build. The native `sphinx-build` command displays the
+warning details and categories. The successful `sphinx-lens build` wrapper
+captures those details while building and reports only its aggregate result; it
+does not persist Sphinx warning messages in the Lens index. Use the native
+command with the same source and configuration when you need to inspect a
+category before deciding whether to suppress it.
 
 ## `conf.py` lives outside the source tree
 
