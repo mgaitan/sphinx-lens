@@ -69,9 +69,9 @@ def test_document_keeps_the_prose_before_its_first_heading(sphinx_project: Path)
     assert lens.resolve("guide").text == "Guide"
 
 
-def test_missing_anchor_is_not_reported_as_resolved(sphinx_project: Path):
+def test_missing_anchor_is_not_reported_as_resolved(broken_anchor_project: Path):
     """A reference into a real document at an anchor that does not exist stays unresolved."""
-    lens = build(sphinx_project)
+    lens = build(broken_anchor_project)
 
     outgoing = {(link.target, link.kind) for link in lens.linked("guide#connection-timeout").outgoing}
     assert ("guide#gone", "unresolved") in outgoing

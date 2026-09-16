@@ -35,8 +35,6 @@ Configure the connection timeout before creating a :class:`demo.Client`.
 
 See :ref:`retry-policy`, `Python <https://python.org>`_, and `HTML guide <guide.html>`_.
 
-The anchor in `this one <guide.html#gone>`_ no longer exists.
-
 .. _retry-policy:
 
 Retry policy
@@ -73,6 +71,21 @@ See :term:`connection budget`.
         encoding="utf-8",
     )
     return project
+
+
+@pytest.fixture
+def broken_anchor_project(sphinx_project: Path) -> Path:
+    """Add a stale local anchor to the shared Sphinx corpus."""
+    guide = sphinx_project / "guide.rst"
+    guide.write_text(
+        guide.read_text(encoding="utf-8").replace(
+            "See :ref:`retry-policy`, `Python <https://python.org>`_, and `HTML guide <guide.html>`_.\n",
+            "See :ref:`retry-policy`, `Python <https://python.org>`_, and `HTML guide <guide.html>`_.\n\n"
+            "The anchor in `this one <guide.html#gone>`_ no longer exists.\n",
+        ),
+        encoding="utf-8",
+    )
+    return sphinx_project
 
 
 @pytest.fixture
