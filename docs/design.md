@@ -120,6 +120,10 @@ one exists, then turns a phrase into a stable reference so the caller can read
 and traverse from there. Similarity search belongs to a caller that has a model,
 and building it into the format would date the format.
 
+Staleness checks need the source tree. An index written outside that tree keeps
+its content portable and warns when the source path is unavailable, rather than
+claiming that its hashes were checked.
+
 Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`,
 `--json`, and `jq`. A query language of its own would be one more thing to learn
 and one more thing to maintain.

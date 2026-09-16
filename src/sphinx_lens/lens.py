@@ -243,7 +243,14 @@ class Lens:
         return index_path
 
     def _warn_if_stale(self) -> None:
-        if self.index_path is None or self.source is None or not self.metadata.documents:
+        if self.index_path is None or not self.metadata.documents:
+            return
+        if self.source is None:
+            warnings.warn(
+                "Lens index staleness cannot be checked because its source is outside the artifact",
+                StaleIndexWarning,
+                stacklevel=2,
+            )
             return
         source_dir = (self.index_path.parent / self.source).resolve()
         if not source_dir.is_dir():

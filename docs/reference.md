@@ -209,8 +209,9 @@ structured RST metadata should choose a delimiter or encode JSON explicitly.
 `Lens.document_metadata(target)` resolves a document, section, or domain object
 and returns the metadata for its containing document. `Lens.open()` rejects
 older index versions with a rebuild message and warns when available local
-sources no longer match their hashes. Missing sources, and a `null` source, do
-not prevent an artifact from loading.
+sources no longer match their hashes. An index with a `null` source emits a
+`StaleIndexWarning` explaining that the check cannot run; missing sources do not
+prevent an artifact from loading.
 
 Documents, sections, and objects store only their own normalized text. `read`
 reconstructs a scope by composing its descendants in source order, and

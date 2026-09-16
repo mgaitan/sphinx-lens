@@ -91,6 +91,11 @@ def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
     unavailable_path = lens.write(tmp_path / "portable" / "index.json")
     assert Lens.open(unavailable_path).resolve("guide").title == "Guide"
 
+    lens.source = None
+    portable_path = lens.write(tmp_path / "portable-no-source" / "index.json")
+    with pytest.warns(StaleIndexWarning, match="cannot be checked"):
+        Lens.open(portable_path)
+
 
 def test_open_errors(tmp_path: Path):
     """Missing and incompatible indexes have actionable errors."""
