@@ -2,9 +2,10 @@
 
 A documentation indexer that only works on the toy project in its own test suite
 is worth nothing. This chapter records what happens on documentation nobody
-wrote with Sphinx Lens in mind: this project's own MyST docs, Django, and
-CPython. Between them they cover MyST and RST, the Python and C domains, custom
-domains, autosectionlabel, intersphinx, and project-specific extensions.
+wrote with Sphinx Lens in mind: this project's own MyST docs, Django, CPython,
+and the public MyST-Parser documentation. Together they cover MyST and RST,
+narrative articles, the Python and C domains, custom domains, autosectionlabel,
+intersphinx, and project-specific extensions.
 
 Treat these as evidence about extraction quality and retrieval behavior. They
 are no kind of benchmark: the timings come from one machine and mean nothing
@@ -17,10 +18,16 @@ across machines.
 | Sphinx Lens | `a7053be` plus this change | 10 | 51 | 6 | 45 | 100% | 66.5 KB |
 | Django | `c9eb16a87e60c305fb3651459639f647cce498db` | 672 | 6,128 | 7,547 | 22,367 | 96.9% | 18.2 MB |
 | CPython | `998b89020456db591be41e6529b04f4bc8c8181f` | 553 | 5,121 | 19,623 | 56,303 | 98.2% | 34.6 MB |
+| MyST Parser | [`723cffc`](https://github.com/executablebooks/MyST-Parser/tree/723cffcf84213f0cb58695b27eec9ad72052b53a) | 28 | 239 | 73 | 541 | 98.5% | 410 KB |
 
 “Resolved” combines internal and external links. Django produced 17,773
 internal, 3,911 external, and 683 unresolved links. CPython produced 48,198
-internal, 7,103 external, and 1,002 unresolved links.
+internal, 7,103 external, and 1,002 unresolved links. The MyST Parser run
+produced 184 internal, 349 external, and 8 unresolved links after anchored
+targets were checked. Its 98.5% figure counts internal and external links as
+resolved; `unresolved` means that Lens could not verify a local target or could
+not resolve the reference. This classification does not test whether an
+external URL is reachable.
 
 The Django and CPython index sizes predate the extraction fix that stores the
 prose a document was titled from, so both are smaller than a current run would
