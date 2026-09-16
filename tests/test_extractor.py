@@ -211,6 +211,7 @@ def test_reference_edge_cases():
     resolved_document = new_document("references-resolved")
     resolved_document += nodes.reference("", "empty")
     resolved_document += nodes.reference("", "missing", refuri="missing.html#part")
+    resolved_document += nodes.reference("", "valid", refuri="guide.html#paragraph")
     resolved_document += nodes.reference("", "stale", refuri="guide.html#gone")
     description = addnodes.desc()
     content = addnodes.desc_content()
@@ -219,6 +220,7 @@ def test_reference_edge_cases():
     resolved_document += description
 
     anchors = extractor.AnchorIndex()
+    anchors.order[("guide", "paragraph")] = 0
     links = [
         *extractor._toctree_links("index", raw_document, anchors),
         *extractor._resolved_links("index", resolved_document, anchors, {"index", "guide"}),
@@ -226,6 +228,7 @@ def test_reference_edge_cases():
 
     assert {(link.target, link.kind) for link in links} == {
         ("missing#part", "unresolved"),
+        ("guide#paragraph", "internal"),
         ("guide#gone", "unresolved"),
         ("nested", "unresolved"),
         ("guide", "internal"),

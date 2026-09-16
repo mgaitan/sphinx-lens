@@ -353,10 +353,12 @@ def _resolved_links(
             continue
         source = _link_source(docname, reference, anchors)
         if kind == "internal" and target not in known_locations:
-            # A reference into a document that exists, at an anchor that does
-            # not, is not resolved. Reporting it as internal would hide every
-            # stale anchor in a corpus behind a link that appears to work.
-            kind = "unresolved"
+            target_doc, separator, anchor = target.partition("#")
+            if not separator or (target_doc, anchor) not in anchors.order:
+                # A reference into a document that exists, at an anchor that does
+                # not, is not resolved. Reporting it as internal would hide every
+                # stale anchor in a corpus behind a link that appears to work.
+                kind = "unresolved"
         label = reference.astext()
         yield Link(source=source, target=target, label=label, kind=kind)
 
