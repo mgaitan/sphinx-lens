@@ -73,7 +73,7 @@ def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: 
     assert "Indexed 3 documents" in build_output
     assert "(0 warnings)" in build_output
 
-    assert main(["locate", "connection timeout", "--index", str(output), "--limit", "1"]) == 0
+    assert main(["locate", "connection timeout", "--index", str(output), "--limit", "1", "--under", "guide"]) == 0
     assert "guide#connection-timeout" in capsys.readouterr().out
 
     assert (

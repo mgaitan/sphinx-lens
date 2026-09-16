@@ -206,7 +206,7 @@ class Lens:
             raise LensError(msg)
         raise TargetNotFoundError(name or target)
 
-    def locate(
+    def locate(  # noqa: PLR0913
         self,
         query: str,
         *,
@@ -214,6 +214,7 @@ class Lens:
         regex: bool = False,
         kinds: set[str] | None = None,
         domain: str | None = None,
+        under: set[str] | None = None,
     ) -> list[SearchResult]:
         """Rank filtered entries using text terms or a regular expression."""
         needle = " ".join(query.casefold().split())
@@ -228,7 +229,7 @@ class Lens:
         words = needle.split()
         results: list[SearchResult] = []
         for entry in self.entries:
-            if not self._entry_allowed(entry, kinds, domain):
+            if not self._entry_allowed(entry, kinds, domain, under):
                 continue
             heading = " ".join(filter(None, (entry.ref, entry.title, entry.name)))
             body = " ".join(entry.text.split())
@@ -247,9 +248,20 @@ class Lens:
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
 
-    def _entry_allowed(self, entry: Entry, kinds: set[str] | None, domain: str | None) -> bool:
+    def _entry_allowed(
+        self,
+        entry: Entry,
+        kinds: set[str] | None,
+        domain: str | None,
+        under: set[str] | None,
+    ) -> bool:
+        prefixes = {prefix.rstrip("/") for prefix in under or ()}
         return (
             entry.document not in self.no_search
+            and (
+                not prefixes
+                or any(entry.document == prefix or entry.document.startswith(f"{prefix}/") for prefix in prefixes)
+            )
             and (kinds is None or entry.kind in kinds)
             and (domain is None or entry.domain == domain)
         )

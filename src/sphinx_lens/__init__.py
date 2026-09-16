@@ -36,6 +36,11 @@ def get_parser() -> argparse.ArgumentParser:
     locate_parser.add_argument("--regex", action="store_true", help="Interpret QUERY as a Python regular expression")
     locate_parser.add_argument("--kind", action="append", choices=("document", "section", "object"))
     locate_parser.add_argument("--domain", help="Only return objects from this Sphinx domain")
+    locate_parser.add_argument(
+        "--under",
+        action="append",
+        help="Only return entries whose document is in this subtree; repeat to combine subtrees",
+    )
     locate_parser.add_argument("--json", action="store_true", help="Write structured search results")
     _add_index_argument(locate_parser)
 
@@ -91,6 +96,7 @@ def main(args: list[str] | None = None) -> int:
                 regex=opts.regex,
                 kinds=set(opts.kind) if opts.kind else None,
                 domain=opts.domain,
+                under=set(opts.under) if opts.under else None,
             )
             if opts.json:
                 print(json.dumps([_search_result_dict(result) for result in results], indent=2))

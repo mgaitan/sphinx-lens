@@ -58,7 +58,7 @@ in the index and work with `resolve`, `read`, `children`, and `links`; only
 ```text
 sphinx-lens build SOURCE [--output DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
-                   [--regex] [--kind KIND] [--domain DOMAIN] [--json]
+                   [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
 sphinx-lens inspect TARGET [--index PATH]
 sphinx-lens read TARGET [--index PATH]
 sphinx-lens links TARGET [--index PATH]
@@ -78,10 +78,11 @@ internal destinations.
 `locate` normally ranks exact names, headings, body phrases, and unordered token
 matches. `--regex` interprets the query as a case-insensitive Python regular
 expression. Repeat `--kind` to select documents, sections, or objects; use
-`--domain py` to restrict domain objects. `--json` returns structured results.
+`--domain py` to restrict domain objects. Repeat `--under PATH` to search
+multiple document subtrees. `--json` returns structured results.
 
 ```bash
-sphinx-lens locate "database transactions" -i docs/_build/lens
+sphinx-lens locate "database transactions" --under topics -i docs/_build/lens
 sphinx-lens locate 'QuerySet\.(get|filter)' --regex --kind object --domain py \
   --json -i docs/_build/lens
 ```
