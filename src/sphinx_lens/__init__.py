@@ -18,6 +18,7 @@ from sphinx_lens.lens import (
     LinkSet,
     SearchResult,
     StaleIndexWarning,
+    discover_source,
 )
 
 
@@ -36,7 +37,7 @@ def get_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     build_parser = subparsers.add_parser("build", help="Compile and index a Sphinx project")
-    build_parser.add_argument("source", type=Path)
+    build_parser.add_argument("source", type=Path, nargs="?", help="Sphinx source directory; discovered when omitted")
     build_parser.add_argument("-o", "--output", type=Path)
     build_parser.add_argument("--conf-dir", type=Path, help="Directory containing conf.py")
     build_parser.add_argument("--doctree-dir", type=Path, help="Directory for Sphinx doctrees")
@@ -91,7 +92,7 @@ def main(args: list[str] | None = None) -> int:  # noqa: C901
     try:
         if opts.command == "build":
             lens = build(
-                opts.source,
+                opts.source or discover_source(),
                 opts.output,
                 fail_on_warning=opts.fail_on_warning,
                 conf_dir=opts.conf_dir,
@@ -152,6 +153,7 @@ __all__ = [
     "SearchResult",
     "StaleIndexWarning",
     "build",
+    "discover_source",
     "get_parser",
     "main",
     "setup",

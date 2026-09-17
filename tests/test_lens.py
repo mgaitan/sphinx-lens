@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning
+from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning, discover_source
 from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _term_coverage
 
 if TYPE_CHECKING:
@@ -84,6 +84,20 @@ def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
 
     assert Lens.open(tmp_path).index_path == path
     assert Lens.open(nested).index_path == path
+    assert discover_source(tmp_path) == source
+    assert discover_source(nested) == source
+
+    other_source = tmp_path / "docs"
+    other_source.mkdir()
+    (other_source / "conf.py").touch()
+    with pytest.raises(LensError, match="Multiple Sphinx source directories"):
+        discover_source(tmp_path)
+
+
+def test_discover_source_errors_without_conf(tmp_path: Path):
+    """Source discovery reports when no nearby Sphinx project exists."""
+    with pytest.raises(LensError, match=r"conf\.py not found"):
+        discover_source(tmp_path)
 
 
 def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):

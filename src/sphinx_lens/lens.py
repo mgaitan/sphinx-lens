@@ -23,16 +23,38 @@ DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
 
 
+def _sphinx_source_candidates(directory: Path) -> list[Path]:
+    """Return Sphinx source directories near a project directory or its parents."""
+    for root in (directory, *directory.parents):
+        candidates = [root] if (root / "conf.py").is_file() else []
+        if root == directory:
+            candidates.extend(
+                conf.parent for conf in sorted(root.glob("*/conf.py")) if not conf.parent.name.startswith(".")
+            )
+        if candidates:
+            return list(dict.fromkeys(candidates))
+    return []
+
+
+def discover_source(path: str | Path = ".") -> Path:
+    """Discover one Sphinx source directory from a repository or nested path."""
+    candidates = _sphinx_source_candidates(Path(path).resolve())
+    if not candidates:
+        msg = f"Sphinx conf.py not found from: {Path(path)}"
+        raise LensError(msg)
+    if len(candidates) > 1:
+        joined = ", ".join(str(candidate) for candidate in candidates)
+        msg = f"Multiple Sphinx source directories found; choose one explicitly: {joined}"
+        raise LensError(msg)
+    return candidates[0]
+
+
 def _index_candidates(directory: Path) -> list[Path]:
     """Return conventional indexes near a project directory or its parents."""
     candidates: list[Path] = []
     for root in (directory, *directory.parents):
         candidates.extend((root / INDEX_FILENAME, root / DEFAULT_INDEX, root / LEGACY_INDEX))
-        candidates.extend(
-            conf.parent / DEFAULT_INDEX
-            for conf in sorted(root.glob("*/conf.py"))
-            if not conf.parent.name.startswith(".")
-        )
+    candidates.extend(source / DEFAULT_INDEX for source in _sphinx_source_candidates(directory))
     return list(dict.fromkeys(candidates))
 
 

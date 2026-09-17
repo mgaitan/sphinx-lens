@@ -2,15 +2,25 @@
 
 ## Build
 
-Run the builder from the project's documentation environment; Sphinx discovers
-it from the installed package without a `conf.py` change:
+From the repository or Sphinx source tree, let Lens discover the applicable
+`conf.py`:
 
 ```bash
-sphinx-build -b lens docs docs/_build/lens
+sphinx-lens build
 ```
 
-Use `sphinx-lens build docs` as the equivalent convenience command. Both forms
-execute `conf.py` and require all configured documentation dependencies.
+This writes `_build/lens/index.json` inside the discovered source directory. If
+multiple Sphinx projects are present, select one explicitly with
+`sphinx-lens build path/to/sphinx-source`. The equivalent native Sphinx command
+is:
+
+```bash
+sphinx-build -b lens path/to/sphinx-source path/to/sphinx-source/_build/lens
+```
+
+Both forms execute that `conf.py` and require all configured documentation
+dependencies. Use a project-specific wrapper only when the repository documents
+one.
 
 ## Locate
 
@@ -42,7 +52,7 @@ Project structured search results:
 
 ```bash
 sphinx-lens locate 'QuerySet\..*' --regex --kind object --domain py --json \
-  -i docs/_build/lens \
+  -i path/to/index \
   | jq -r '.[] | [.entry.ref, .entry.location, .score] | @tsv'
 ```
 
@@ -50,10 +60,10 @@ Query the full index model when ranking is unnecessary:
 
 ```bash
 jq -r '.entries[] | select(.kind == "object" and .object_type == "class") | .ref' \
-  docs/_build/lens/index.json
+  path/to/index/index.json
 jq -r '.links[] | select(.kind == "unresolved") | .target' \
-  docs/_build/lens/index.json | sort | uniq -c | sort -nr
-rg -n -i 'transaction|atomic' docs/_build/lens/index.json
+  path/to/index/index.json | sort | uniq -c | sort -nr
+rg -n -i 'transaction|atomic' path/to/index/index.json
 ```
 
 Prefer `jq` for fields and relationships. Prefer `rg` for a quick literal or
@@ -64,7 +74,7 @@ regex scan across the artifact.
 ```python
 from sphinx_lens import Lens
 
-lens = Lens.open("docs/_build/lens")
+lens = Lens.open()
 matches = lens.locate(r"QuerySet\.(get|filter)", regex=True, kinds={"object"}, domain="py")
 entry = lens.resolve("py:class", "django.db.models.Model")
 text = lens.read(entry.ref)

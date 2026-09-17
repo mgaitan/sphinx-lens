@@ -28,23 +28,21 @@ it is available as soon as the package is installed. You do not have to list it
 in `extensions`:
 
 ```bash
-uv run --group docs sphinx-build -b lens docs/ docs/_build/lens/
+uv run sphinx-lens build
 ```
 
-The result is `docs/_build/lens/index.json`: an ordinary Sphinx artifact, in the
-same place as your HTML, with the same lifecycle. `make clean` removes it along
-with everything else, and CI can cache or publish it the way it already caches
-or publishes builds. This repository exposes the command as `make lens`.
+Lens finds the nearby `conf.py` and writes `_build/lens/index.json` inside that
+Sphinx source directory. The result is an ordinary Sphinx artifact with the same
+lifecycle as HTML. A project may version, cache, publish, or remove it with its
+other generated files.
 
 If the project contains generated pages that repeat other content, add their
 source-file globs to `lens_no_search` in `conf.py`. Those documents remain
 available to `resolve`, `read`, `children`, and `links`, but `locate` skips them.
 See {ref}`search-exclusions` for the metadata form and the matching rules.
 
-If you prefer a single command that does not require you to spell out the paths,
-`uv run sphinx-lens build docs/` wraps the same builder and writes to the same
-default location. For a corpus whose `conf.py` is stored elsewhere, pass both
-paths explicitly:
+If discovery finds multiple Sphinx projects, pass the intended source directory.
+For a corpus whose `conf.py` is stored separately, pass both paths explicitly:
 
 ```bash
 uv run sphinx-lens build knowledge/ --conf-dir sphinx/ \

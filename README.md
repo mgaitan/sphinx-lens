@@ -42,8 +42,8 @@ The `lens` builder is discovered through Sphinx's builder entry point; no
 `conf.py` change is required. It loads the project's formats, extensions, and
 domains, then writes `docs/_build/lens/index.json`. Query commands discover that
 index from the repository root or anywhere inside the Sphinx source tree.
-Projects can expose the build as `make lens`; `sphinx-lens build docs/` is the
-equivalent convenience command.
+Run `sphinx-lens build` from the repository to discover `conf.py` and create the
+index without spelling out the source directory.
 
 Sphinx executes `conf.py` during every build. Only index projects you trust, and
 run the command in the project's documentation environment so MyST, autodoc,

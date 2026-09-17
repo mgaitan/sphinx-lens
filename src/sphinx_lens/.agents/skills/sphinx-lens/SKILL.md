@@ -10,29 +10,34 @@ results over scanning or loading entire source trees.
 
 ## Workflow
 
-1. Find an existing index. Read the project's agent guidance and build targets
-   first because they may declare and version a project-specific location. Common
-   paths include `docs/_build/lens/index.json` and
-   `knowledge/_build/lens/index.json`.
-2. Query an existing index directly. Do not rebuild ordinary HTML or regenerate a
-   current index merely to answer a question. Lens warns when indexed source files
-   changed, provided the source tree is available relative to the artifact.
-3. If the index is absent or Lens reports that it may be stale, prefer the
-   project's `make lens` target. Otherwise run `sphinx-lens build docs` inside the
-   project's documentation environment; this writes
-   `docs/_build/lens/index.json`.
-4. Identify the corpus shape before choosing a query: API corpora expose domain
+1. Read the project's agent guidance first. It may declare a versioned index or
+   a project-specific build command.
+2. Run query commands from the repository or Sphinx source tree. Lens discovers
+   `_build/lens/index.json` next to a nearby `conf.py`; use `-i` only when project
+   guidance names a nonstandard artifact.
+3. Query an existing index directly. Do not rebuild ordinary HTML or regenerate a
+   current index merely to answer a question.
+4. Rebuild when the index is absent, Lens warns that sources changed, or project
+   state indicates that the artifact may be incomplete. The warning cannot detect
+   newly added source files, changes to `conf.py`, changed autodoc inputs, or
+   sources unavailable beside a portable artifact. A missing result for content
+   known to be new or regenerated is also a reason to rebuild.
+5. To rebuild, use a project-specific command only when the repository documents
+   one. Otherwise run `sphinx-lens build`; it discovers the applicable `conf.py`
+   and writes beside it at `_build/lens/index.json`. Pass the Sphinx source
+   directory explicitly only when discovery reports multiple projects.
+6. Identify the corpus shape before choosing a query: API corpora expose domain
    objects, while narrative corpora may contain only documents and sections.
-5. Start with `sphinx-lens locate` using a short natural-language phrase. For a
+7. Start with `sphinx-lens locate` using a short natural-language phrase. For a
    narrative corpus, use content words from the procedure rather than a complete
    question; add repeatable `--under PATH` values when the source tree provides a
    useful product, module, or country boundary.
-6. Use `--regex`, `--kind`, or `--domain` only when the initial results are too
+8. Use `--regex`, `--kind`, or `--domain` only when the initial results are too
    broad or the task names a structural constraint.
-7. Use the returned canonical reference with `inspect`, `read`, or `links`.
-8. Read the smallest useful scope. Follow links only when the current entry does
+9. Use the returned canonical reference with `inspect`, `read`, or `links`.
+10. Read the smallest useful scope. Follow links only when the current entry does
    not answer the question, or when it explicitly depends on another procedure.
-9. Cite the physical `location` from `inspect` or the document reference used for
+11. Cite the physical `location` from `inspect` or the document reference used for
    the answer. Name the canonical references so another agent can reproduce the
    path.
 
