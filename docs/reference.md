@@ -4,8 +4,11 @@ The complete surface: one builder, five commands, one class, and the shape of
 the file they all read. [Getting started](getting_started.md) is the guided
 version of the same material.
 
-Every query command takes `--index`, which accepts either a builder output
-directory containing `index.json` or a direct path to the file itself.
+Query commands discover `_build/lens/index.json` next to a Sphinx `conf.py`
+from the repository root or from a directory inside the source tree. They also
+recognize a direct `index.json`, a root `_build/lens/`, and the legacy
+`.sphinx-lens/` location. Use `--index` to select an artifact outside that
+conventional project layout; it accepts either its directory or the JSON file.
 
 ## Sphinx builder
 
@@ -17,8 +20,8 @@ sphinx-build -b lens docs/ docs/_build/lens/
 ```
 
 The builder loads the same sources, extensions, domains, objects, and references
-as every other Sphinx build. Its only output is
-`docs/_build/lens/index.json`. A Makefile can expose the command as `make lens`.
+as every other Sphinx build. Its only output is `_build/lens/index.json` inside
+the selected Sphinx source directory.
 
 (search-exclusions)=
 ## Search exclusions
@@ -56,7 +59,7 @@ in the index and work with `resolve`, `read`, `children`, and `links`; only
 ## CLI
 
 ```text
-sphinx-lens build SOURCE [--output DIRECTORY] [--conf-dir DIRECTORY]
+sphinx-lens build [SOURCE] [--output DIRECTORY] [--conf-dir DIRECTORY]
                     [--doctree-dir DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
                    [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
@@ -65,8 +68,10 @@ sphinx-lens read TARGET [--index PATH]
 sphinx-lens links TARGET [--index PATH]
 ```
 
-`sphinx-lens build` is a convenience wrapper around the native builder. It
-writes `SOURCE/_build/lens/index.json` by default. Use `--conf-dir` when
+`sphinx-lens build` is a convenience wrapper around the native builder. With no
+`SOURCE`, it discovers the nearby `conf.py`; if multiple projects are found, it
+asks for an explicit source. It writes `SOURCE/_build/lens/index.json` by
+default. Use `--conf-dir` when
 `conf.py` lives outside `SOURCE`, and `--doctree-dir` to keep Sphinx's cached
 doctrees outside the source tree. `--fail-on-warning` applies Sphinx's
 warning-as-error policy. The build summary includes the number of links

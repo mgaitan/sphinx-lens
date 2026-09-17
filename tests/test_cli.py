@@ -65,7 +65,12 @@ def test_get_version_package_not_found(mocker):
     assert get_version() == "unknown"
 
 
-def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: pytest.CaptureFixture):
+def test_build_and_query_commands(
+    sphinx_project: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """The CLI builds and queries the same portable index."""
     output = tmp_path / "lens"
     doctree_dir = tmp_path / "doctrees"
@@ -124,6 +129,10 @@ def test_build_and_query_commands(sphinx_project: Path, tmp_path: Path, capsys: 
 
     assert main(["links", "guide#connection-timeout", "--index", str(output)]) == 0
     assert '"outgoing"' in capsys.readouterr().out
+
+    monkeypatch.chdir(tmp_path)
+    assert main(["build"]) == 0
+    assert (sphinx_project / "_build" / "lens" / "index.json").is_file()
 
 
 def test_query_error(capsys: pytest.CaptureFixture):
