@@ -48,7 +48,7 @@ run the command in the project's documentation environment so MyST, autodoc,
 themes, and project-specific extensions are importable.
 
 Install the bundled agent skill with
-[Library Skills](https://github.com/tiangolo/library-skills):
+[Library Skills](https://library-skills.io/):
 
 ```bash
 uvx library-skills install --skill sphinx-lens --yes
