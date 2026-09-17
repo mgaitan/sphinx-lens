@@ -32,16 +32,18 @@ index like any other Sphinx artifact:
 
 ```bash
 sphinx-build -b lens docs/ docs/_build/lens/
-sphinx-lens locate "connection timeout" --index docs/_build/lens/
-sphinx-lens inspect py:class:example.Client --index docs/_build/lens/
-sphinx-lens read guide/network#timeouts --index docs/_build/lens/
-sphinx-lens links guide/network#timeouts --index docs/_build/lens/
+sphinx-lens locate "connection timeout"
+sphinx-lens inspect py:class:example.Client
+sphinx-lens read guide/network#timeouts
+sphinx-lens links guide/network#timeouts
 ```
 
 The `lens` builder is discovered through Sphinx's builder entry point; no
 `conf.py` change is required. It loads the project's formats, extensions, and
-domains, then writes `docs/_build/lens/index.json`. Projects can expose this as
-`make lens`; `sphinx-lens build docs/` is the equivalent convenience command.
+domains, then writes `docs/_build/lens/index.json`. Query commands discover that
+index from the repository root or anywhere inside the Sphinx source tree.
+Projects can expose the build as `make lens`; `sphinx-lens build docs/` is the
+equivalent convenience command.
 
 Sphinx executes `conf.py` during every build. Only index projects you trust, and
 run the command in the project's documentation environment so MyST, autodoc,

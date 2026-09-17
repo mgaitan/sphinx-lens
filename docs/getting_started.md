@@ -63,7 +63,7 @@ text, and returns ranked references. Comparisons ignore accents, and Sphinx's
 stemmer for the configured language makes inflected terms match when available:
 
 ```bash
-uv run --group docs sphinx-lens locate "separate artifact" --index docs/_build/lens/
+uv run --group docs sphinx-lens locate "separate artifact"
 ```
 
 Each result line begins with the reference you use everywhere else. There are
@@ -79,8 +79,7 @@ When you already know the shape of what you want, say so and skip the ranking
 entirely. This finds every documented object whose name ends in `TOKEN`:
 
 ```bash
-uv run --group docs sphinx-lens locate 'TOKEN$' --regex --kind object \
-  --index docs/_build/lens/
+uv run --group docs sphinx-lens locate 'TOKEN$' --regex --kind object
 ```
 
 In a project with an API, `--domain py` narrows the same query to Python
@@ -92,7 +91,7 @@ When the corpus has directory-based scopes, add
 
 ```bash
 uv run --group docs sphinx-lens locate "connection timeout" \
-  --under guides --under reference --index docs/_build/lens/
+  --under guides --under reference
 ```
 
 ## Read only what you need
@@ -101,7 +100,7 @@ Hand a reference to `read` and you get that scope's text, composed from the
 scope and its descendants. The file it happens to live in does not come with it:
 
 ```bash
-uv run --group docs sphinx-lens read std:term:PYTHONPATH --index docs/_build/lens/
+uv run --group docs sphinx-lens read std:term:PYTHONPATH
 ```
 
 A glossary term returns its definition. A section returns that section and its
@@ -118,7 +117,7 @@ Sphinx resolved every cross-reference in the project while building. `links`
 gives you both directions of that graph for any reference:
 
 ```bash
-uv run --group docs sphinx-lens links std:term:GH_TOKEN --index docs/_build/lens/
+uv run --group docs sphinx-lens links std:term:GH_TOKEN
 ```
 
 That returns the two chapters that mention the term, resolved down to the exact
@@ -137,11 +136,15 @@ Everything the CLI does is a thin layer over the `Lens` object:
 ```python
 from sphinx_lens import Lens
 
-lens = Lens.open("docs/_build/lens/")
+lens = Lens.open()
 section = lens.resolve("design#why-a-separate-artifact")
 matches = lens.locate("separate artifact")
 outgoing = lens.references(section.ref)
 ```
+
+From the repository root or a directory inside the Sphinx sources,
+`Lens.open()` discovers the index associated with `conf.py`. Pass an explicit
+path only for an index stored outside the conventional project layout.
 
 `Lens.open()` also warns when the sources it was built from have changed on
 disk, so a stale index says so rather than answering with last week's

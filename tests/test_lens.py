@@ -74,6 +74,18 @@ def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     assert Lens.open(direct.parent).index_path == direct
 
 
+def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
+    """Discovery follows conf.py from the repository root or a nested source path."""
+    source = tmp_path / "knowledge"
+    nested = source / "guide"
+    nested.mkdir(parents=True)
+    (source / "conf.py").touch()
+    path = lens.write(source / "_build" / "lens" / "index.json")
+
+    assert Lens.open(tmp_path).index_path == path
+    assert Lens.open(nested).index_path == path
+
+
 def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
     """Provenance hashes reveal stale local indexes without blocking reads."""
     source = tmp_path / "source"

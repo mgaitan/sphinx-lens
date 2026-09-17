@@ -15,9 +15,9 @@ execute `conf.py` and require all configured documentation dependencies.
 ## Locate
 
 ```bash
-sphinx-lens locate "database transactions" -i docs/_build/lens
-sphinx-lens locate '^(django\.)?db\..*Model$' --regex --kind object --domain py -i docs/_build/lens
-sphinx-lens locate 'timeout|deadline' --regex --kind section --json -i docs/_build/lens
+sphinx-lens locate "database transactions"
+sphinx-lens locate '^(django\.)?db\..*Model$' --regex --kind object --domain py
+sphinx-lens locate 'timeout|deadline' --regex --kind section --json
 ```
 
 The first form ranks text terms. Regex uses Python `re` with case-insensitive
@@ -27,13 +27,14 @@ body text.
 ## Inspect and Navigate
 
 ```bash
-sphinx-lens inspect py:class:django.db.models.Model -i docs/_build/lens
-sphinx-lens read topics/db/transactions -i docs/_build/lens
-sphinx-lens links topics/db/transactions -i docs/_build/lens
+sphinx-lens inspect py:class:django.db.models.Model
+sphinx-lens read topics/db/transactions
+sphinx-lens links topics/db/transactions
 ```
 
 Use `inspect` for metadata, `read` for normalized scoped text, and `links` for
-incoming plus outgoing references.
+incoming plus outgoing references. These commands discover the index associated
+with a nearby Sphinx `conf.py`; pass `-i PATH` only for a nonstandard artifact.
 
 ## Compose with jq and rg
 

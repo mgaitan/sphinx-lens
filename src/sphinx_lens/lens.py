@@ -23,6 +23,19 @@ DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
 
 
+def _index_candidates(directory: Path) -> list[Path]:
+    """Return conventional indexes near a project directory or its parents."""
+    candidates: list[Path] = []
+    for root in (directory, *directory.parents):
+        candidates.extend((root / INDEX_FILENAME, root / DEFAULT_INDEX, root / LEGACY_INDEX))
+        candidates.extend(
+            conf.parent / DEFAULT_INDEX
+            for conf in sorted(root.glob("*/conf.py"))
+            if not conf.parent.name.startswith(".")
+        )
+    return list(dict.fromkeys(candidates))
+
+
 def _fold_text(text: str) -> str:
     """Casefold text and remove combining marks for accent-insensitive search."""
     normalized = unicodedata.normalize("NFKD", text.casefold())
@@ -192,8 +205,8 @@ class Lens:
         """Load an index file or discover it below a project directory."""
         index_path = Path(path)
         if index_path.is_dir():
-            candidates = (index_path / INDEX_FILENAME, index_path / DEFAULT_INDEX, index_path / LEGACY_INDEX)
-            index_path = next((candidate for candidate in candidates if candidate.exists()), candidates[1])
+            candidates = _index_candidates(index_path.resolve())
+            index_path = next((candidate for candidate in candidates if candidate.is_file()), candidates[1])
         try:
             payload = json.loads(index_path.read_text(encoding="utf-8"))
         except FileNotFoundError as error:

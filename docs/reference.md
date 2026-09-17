@@ -4,8 +4,11 @@ The complete surface: one builder, five commands, one class, and the shape of
 the file they all read. [Getting started](getting_started.md) is the guided
 version of the same material.
 
-Every query command takes `--index`, which accepts either a builder output
-directory containing `index.json` or a direct path to the file itself.
+Query commands discover `_build/lens/index.json` next to a Sphinx `conf.py`
+from the repository root or from a directory inside the source tree. They also
+recognize a direct `index.json`, a root `_build/lens/`, and the legacy
+`.sphinx-lens/` location. Use `--index` to select an artifact outside that
+conventional project layout; it accepts either its directory or the JSON file.
 
 ## Sphinx builder
 
