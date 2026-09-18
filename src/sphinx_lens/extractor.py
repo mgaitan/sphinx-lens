@@ -22,7 +22,17 @@ from sphinx.errors import SphinxError
 from sphinx.util import logging
 from sphinx.util.matching import Matcher
 
-from sphinx_lens.lens import DEFAULT_INDEX, INDEX_FILENAME, DocumentInfo, Entry, IndexMetadata, Lens, LensError, Link
+from sphinx_lens.lens import (
+    DEFAULT_INDEX,
+    INDEX_FILENAME,
+    LEGACY_JSON_FILENAME,
+    DocumentInfo,
+    Entry,
+    IndexMetadata,
+    Lens,
+    LensError,
+    Link,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -59,7 +69,7 @@ class LensBuilder(DummyBuilder):
     """Sphinx builder that writes a structure-aware Lens index."""
 
     name = "lens"
-    epilog = "The Lens index is in %(outdir)s/index.json."
+    epilog = f"The Lens index is in %(outdir)s/{INDEX_FILENAME}."
     allow_parallel = False
 
     def init(self) -> None:
@@ -127,6 +137,7 @@ class LensBuilder(DummyBuilder):
             documents=_document_records(self.env),
         )
         index_path = lens.write(Path(self.outdir) / INDEX_FILENAME)
+        (Path(self.outdir) / LEGACY_JSON_FILENAME).unlink(missing_ok=True)
         logger.info("wrote Lens index to %s", index_path)
 
 

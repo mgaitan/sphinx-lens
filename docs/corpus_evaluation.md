@@ -38,6 +38,48 @@ The runs used Python 3.14.4, Sphinx 9.1.0, and cached Sphinx doctrees when
 available. The observed build times and peak resident memory were 39.9 seconds
 and 287 MB for Django, and 104.6 seconds and 497 MB for CPython.
 
+## SQLite prototype: Fierro knowledge base
+
+Issue [#43](https://github.com/mgaitan/sphinx-lens/issues/43) replaced the JSON
+artifact with SQLite and FTS5. The comparison used the same Spanish index from
+`~/lambda/kb`: 1,000 documents, 2,853 entries, 2,432 links, and 185 documents
+excluded from search. The JSON baseline ran from an unmodified `main` worktree;
+the SQLite branch rebuilt the same corpus with cached doctrees.
+
+| Measurement | JSON on `main` | SQLite prototype |
+| --- | ---: | ---: |
+| Artifact size | 6,465,972 bytes | 20,185,088 bytes |
+| gzip size | 888,055 bytes | 8,695,519 bytes |
+| Full build with fresh doctrees | 34.35 s | 25.81 s |
+| Build peak resident memory | 361,356 KB | 344,060 KB |
+| Rebuild with no source changes | 8.51 s | 7.28 s |
+| Storage write from the same extracted model | 0.69 s | 1.00 s |
+| `Lens.open()` | 96 ms | 26 ms |
+| Five representative queries | 10.19-10.41 s each | 18-106 ms each |
+| New CLI process, `cargar productos con IVA` | 10.92 s | 0.40 s |
+| CLI peak resident memory | 61,716 KB | 51,648 KB |
+
+The five queries covered product VAT, copying user groups, Mercado Libre stock,
+Paraguayan electronic invoices, and importing receipts from a bank statement.
+Their top-five references had the same order under both backends. The SQLite
+process did not materialize the complete `entries` table while running these
+normal text searches.
+
+The database is larger because it contains the complete document metadata and
+source hashes, the extracted entry text, B-tree indexes for navigation, and two
+contentless FTS indexes. The trigram index preserves the previous substring
+search behavior, but makes the compressed SQLite artifact almost ten times the
+size of compressed JSON. This prototype favors query behavior and
+inspectability over compressed artifact size. The build wrote to a temporary
+database and replaced the final file after closing it; the artifact directory
+contained no journal or WAL sidecars. It does not yet update SQLite
+incrementally: the Lens builder writes every cached doctree and rebuilds the
+database even when Sphinx finds no changed sources.
+
+PyStemmer is a required dependency. Sphinx selects its C implementation through
+`snowballstemmer`; on this corpus, rebuilding with cached doctrees dropped from
+14.08 seconds to 7.28 seconds while producing the same Spanish stems.
+
 ## Sphinx Lens: MyST and glossary precision
 
 The project builds its own index without listing `sphinx_lens` in `conf.py`:
@@ -152,8 +194,8 @@ resident memory in a new CLI process.
   Django and 1,233 on CPython.
 - Storing only each entry's own text reduced the large-corpus artifacts while
   keeping `read` able to compose complete scopes.
-- JSON is parsed in full on every open, so a cold process pays roughly a second
-  on these corpora before answering anything.
+- SQLite opens metadata without loading all entries and uses FTS5 to select
+  normal-search candidates. Regex queries still scan the filtered entry rows.
 - Normalized `astext()` output does not distinguish prose, code, tables, and
   admonitions.
 - Remaining unresolved links include intersphinx and extension-specific targets

@@ -50,7 +50,7 @@ uv run sphinx-lens build /tmp/myst-parser-public/docs \
   --doctree-dir /tmp/myst-lens-doctrees
 ```
 
-The output is one `index.json` file. Sphinx reads the source tree, but Lens does
+The output is one `index.sqlite` file. Sphinx reads the source tree, but Lens does
 not need to modify it to index the documents.
 
 ## A complete toctree is optional
@@ -112,7 +112,7 @@ objects because documents and sections remain addressable by their source paths.
 
 ## Measured cost and limits
 
-The recorded run used Sphinx Lens commit `a7053be` with Sphinx 9.1.0. It produced
+The recorded pre-SQLite run used Sphinx Lens commit `a7053be` with Sphinx 9.1.0. It produced
 28 document entries, 239 section entries, and 73 object entries. The index
 contained 541 links: 184 internal, 349 external, and 8 unresolved. The measured
 resolution rate was 98.5%, and the JSON artifact was 419,972 bytes (about
@@ -120,8 +120,8 @@ resolution rate was 98.5%, and the JSON artifact was 419,972 bytes (about
 
 `unresolved` means that Lens could not verify a local target or could not resolve
 the reference. This classification does not test whether an external URL is
-reachable. The CLI parses the complete JSON index on every process start, so
-repeated queries should account for index loading as well as search work.
+reachable. Those size and loading measurements describe the retired JSON
+artifact; current builds use SQLite and FTS5.
 
 A narrative corpus benefits from the same retrieval loop as an API corpus: find
 a reference, read its narrowest scope, and traverse only the links needed to

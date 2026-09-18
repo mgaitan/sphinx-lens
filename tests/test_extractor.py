@@ -31,7 +31,7 @@ def test_build_extracts_semantics(sphinx_project: Path):
         "audience": "developers",
         "keywords": "search, navigation",
     }
-    assert lens.index_path == sphinx_project / "_build" / "lens" / "index.json"
+    assert lens.index_path == sphinx_project / "_build" / "lens" / "index.sqlite"
     assert len([entry for entry in lens.entries if entry.kind == "document"]) == DOCUMENT_COUNT
     assert {entry.ref for entry in lens.children("guide")} == {
         "guide#connection-timeout",
@@ -123,9 +123,13 @@ def test_no_search_documents_remain_navigable(no_search_project: Path):
 def test_build_to_explicit_output(sphinx_project: Path, tmp_path: Path):
     """The artifact location can live outside the Sphinx source tree."""
     output = tmp_path / "artifact" / "lens"
+    output.mkdir(parents=True)
+    legacy = output / "index.json"
+    legacy.write_text('{"version": 4}\n', encoding="utf-8")
     lens = build(sphinx_project, output)
-    assert lens.index_path == output / "index.json"
+    assert lens.index_path == output / "index.sqlite"
     assert lens.index_path.is_file()
+    assert not legacy.exists()
 
 
 def test_build_uses_external_conf_and_doctrees(sphinx_project: Path, tmp_path: Path):
@@ -138,7 +142,7 @@ def test_build_uses_external_conf_and_doctrees(sphinx_project: Path, tmp_path: P
 
     lens = build(sphinx_project, output, conf_dir=conf_dir, doctree_dir=doctree_dir)
 
-    assert lens.index_path == output / "index.json"
+    assert lens.index_path == output / "index.sqlite"
     assert doctree_dir.is_dir()
     assert not (sphinx_project / "_build" / ".doctrees").exists()
 

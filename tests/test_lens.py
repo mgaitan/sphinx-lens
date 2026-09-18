@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
+import stat
+from contextlib import closing
 from hashlib import sha256
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning, discover_source
-from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _term_coverage
+from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _search_language, _term_coverage
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 REFERENCE_COUNT = 2
+NEW_INDEX_MODE = 0o640
+SHARED_INDEX_MODE = 0o664
 
 
 @pytest.fixture
@@ -61,7 +68,7 @@ def lens(tmp_path: Path) -> Lens:
 
 def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     """Indexes serialize and load from files and conventional directories."""
-    path = lens.write(tmp_path / "_build" / "lens" / "index.json")
+    path = lens.write(tmp_path / "_build" / "lens" / "index.sqlite")
     loaded = Lens.open(tmp_path)
     assert loaded.source == lens.source
     assert loaded.entries == lens.entries
@@ -70,8 +77,89 @@ def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     assert loaded.documents == lens.documents
     assert loaded.index_path == path
 
-    direct = lens.write(tmp_path / "portable" / "index.json")
+    direct = lens.write(tmp_path / "portable" / "index.sqlite")
     assert Lens.open(direct.parent).index_path == direct
+
+
+def test_sqlite_locate_uses_fts_without_loading_all_entries(lens: Lens, tmp_path: Path):
+    """Normal text search keeps the complete entries table lazy."""
+    with pytest.raises(LensError, match="no SQLite artifact"), lens._connect():
+        pass
+
+    loaded = Lens.open(lens.write(tmp_path / "index.sqlite"))
+
+    assert loaded._entries is None
+    assert loaded.locate("connection timeout")[0].entry.ref == "guide#timeouts"
+    assert loaded.locate("!!!") == []
+    assert loaded._entries is None
+
+
+def test_sqlite_locate_preserves_infix_matches(lens: Lens, tmp_path: Path):
+    """Trigram candidates preserve partial-word searches after persistence."""
+    loaded = Lens.open(lens.write(tmp_path / "index.sqlite"))
+
+    assert [result.entry.ref for result in loaded.locate("nection")] == ["guide#timeouts"]
+    assert [result.entry.ref for result in loaded.locate("nection details")] == ["guide#timeouts"]
+    assert loaded._entries is None
+
+
+def test_sqlite_schema_has_structural_indexes(lens: Lens, tmp_path: Path):
+    """The artifact indexes canonical, hierarchy, and link lookups."""
+    path = lens.write(tmp_path / "index.sqlite")
+
+    with closing(sqlite3.connect(path)) as connection:
+        indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+    assert {"entries_document_order", "entries_parent_order", "links_source", "links_target"} <= indexes
+    assert {"entries_fts", "entries_trigram"} <= tables
+
+
+def test_write_preserves_readable_permissions(lens: Lens, tmp_path: Path):
+    """New indexes honor the umask and replacements retain the existing mode."""
+    previous_umask = os.umask(0o027)
+    try:
+        path = lens.write(tmp_path / "index.sqlite")
+    finally:
+        os.umask(previous_umask)
+    assert stat.S_IMODE(path.stat().st_mode) == NEW_INDEX_MODE
+
+    path.chmod(SHARED_INDEX_MODE)
+    lens.write(path)
+    assert stat.S_IMODE(path.stat().st_mode) == SHARED_INDEX_MODE
+
+
+def test_write_retries_a_temporary_name_collision(lens: Lens, tmp_path: Path, mocker):
+    """Atomic writes choose another temporary name after a collision."""
+    collision = tmp_path / ".index.sqlite.collision.tmp"
+    collision.touch()
+    mocker.patch("sphinx_lens.lens.secrets.token_hex", side_effect=["collision", "available"])
+
+    assert lens.write(tmp_path / "index.sqlite").is_file()
+
+
+def test_open_keeps_an_absolute_database_path(lens: Lens, tmp_path: Path, monkeypatch):
+    """Lazy reads survive a working-directory change after a relative open."""
+    monkeypatch.chdir(tmp_path)
+    lens.write("index.sqlite")
+    loaded = Lens.open("index.sqlite")
+    monkeypatch.chdir(tmp_path.parent)
+
+    assert loaded.index_path == tmp_path / "index.sqlite"
+    assert loaded.resolve("guide").title == "Guide"
+    assert loaded.locate("nection")[0].entry.ref == "guide#timeouts"
+
+
+def test_failed_write_keeps_previous_artifact(lens: Lens, tmp_path: Path, mocker):
+    """A write failure leaves the last complete database in place."""
+    path = lens.write(tmp_path / "index.sqlite")
+    original = path.read_bytes()
+    mocker.patch.object(lens, "_write_database", side_effect=RuntimeError("interrupted"))
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        lens.write(path)
+
+    assert path.read_bytes() == original
 
 
 def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
@@ -80,7 +168,7 @@ def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
     nested = source / "guide"
     nested.mkdir(parents=True)
     (source / "conf.py").touch()
-    path = lens.write(source / "_build" / "lens" / "index.json")
+    path = lens.write(source / "_build" / "lens" / "index.sqlite")
 
     assert Lens.open(tmp_path).index_path == path
     assert Lens.open(nested).index_path == path
@@ -108,34 +196,56 @@ def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
     document.write_text("current", encoding="utf-8")
     lens.source = "../source"
     lens.metadata = IndexMetadata(documents={"guide.rst": sha256(b"original").hexdigest()})
-    index_path = lens.write(tmp_path / "artifact" / "index.json")
+    index_path = lens.write(tmp_path / "artifact" / "index.sqlite")
 
     with pytest.warns(StaleIndexWarning, match="1 source file"):
         Lens.open(index_path)
 
     lens.source = "../unavailable"
-    unavailable_path = lens.write(tmp_path / "portable" / "index.json")
+    unavailable_path = lens.write(tmp_path / "portable" / "index.sqlite")
     assert Lens.open(unavailable_path).resolve("guide").title == "Guide"
 
     lens.source = None
-    portable_path = lens.write(tmp_path / "portable-no-source" / "index.json")
+    portable_path = lens.write(tmp_path / "portable-no-source" / "index.sqlite")
     with pytest.warns(StaleIndexWarning, match="cannot be checked"):
         Lens.open(portable_path)
 
 
-def test_open_errors(tmp_path: Path):
+def test_open_errors(tmp_path: Path, mocker):
     """Missing and incompatible indexes have actionable errors."""
     with pytest.raises(LensError, match="index not found"):
         Lens.open(tmp_path)
 
-    path = tmp_path / "index.json"
-    path.write_text(json.dumps({"version": 999}), encoding="utf-8")
-    with pytest.raises(LensError, match="Unsupported"):
+    legacy = tmp_path / "index.json"
+    legacy.write_text(json.dumps({"version": 4}), encoding="utf-8")
+    with pytest.raises(LensError, match=r"JSON.*no longer supported.*rebuild"):
+        Lens.open(legacy)
+    with pytest.raises(LensError, match=r"JSON.*no longer supported.*rebuild"):
+        Lens.open(tmp_path)
+
+    path = tmp_path / "incompatible.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("CREATE TABLE artifact (schema_version INTEGER)")
+        connection.execute("INSERT INTO artifact VALUES (999)")
+    with pytest.raises(LensError, match=r"Unsupported.*rebuild"):
         Lens.open(path)
 
-    path.write_text(json.dumps({"version": 3}), encoding="utf-8")
-    with pytest.raises(LensError, match="rebuild"):
-        Lens.open(path)
+    empty = tmp_path / "empty.sqlite"
+    with closing(sqlite3.connect(empty)) as connection, connection:
+        connection.execute("CREATE TABLE artifact (schema_version INTEGER)")
+    with pytest.raises(LensError, match="missing artifact metadata"):
+        Lens.open(empty)
+
+    corrupt = tmp_path / "corrupt.sqlite"
+    corrupt.write_text("not a database", encoding="utf-8")
+    with pytest.raises(LensError, match="Invalid Lens SQLite index"):
+        Lens.open(corrupt)
+
+    unreadable = tmp_path / "unreadable.sqlite"
+    unreadable.touch()
+    mocker.patch("sphinx_lens.lens.sqlite3.connect", side_effect=sqlite3.OperationalError("denied"))
+    with pytest.raises(LensError, match=r"Cannot open Lens index.*denied"):
+        Lens.open(unreadable)
 
 
 def test_resolve(lens: Lens):
@@ -217,6 +327,11 @@ def test_locate_folds_accents_and_stems():
     assert [result.entry.ref for result in spanish.locate("copio")] == ["guide"]
     assert spanish.locate("!!!") == []
 
+    language = _search_language("es")
+    assert language is not None
+    assert version("pystemmer")
+    assert language.stem("copiar") == "copi"
+
     accented = Lens(
         source=".",
         entries=[
@@ -242,6 +357,29 @@ def test_locate_folds_accents_and_stems():
     assert results[1].entry.ref == "body"
     assert results[0].score > results[1].score
     assert results[1].excerpt.startswith("The café")
+
+
+def test_locate_excerpt_centers_a_stemmed_match():
+    """Stemmed searches show the matching display word rather than the scope start."""
+    spanish = Lens(
+        source=".",
+        entries=[
+            Entry(
+                ref="guide",
+                kind="document",
+                title="Guide",
+                text=f"{'Introducción. ' * 30}Cómo copiar un grupo de usuarios.",
+                document="guide",
+            )
+        ],
+        links=[],
+        metadata=IndexMetadata(language="es"),
+    )
+
+    excerpt = spanish.locate("copio")[0].excerpt
+
+    assert excerpt.startswith("...")
+    assert "Cómo copiar un grupo" in excerpt
 
 
 def test_document_metadata_resolves_from_any_entry(lens: Lens):

@@ -3,24 +3,121 @@
 from __future__ import annotations
 
 import json
+import os
 import posixpath
 import re
+import secrets
+import sqlite3
+import stat
 import unicodedata
 import warnings
+from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
 from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from sphinx.search import SearchLanguage
 from sphinx.search import languages as sphinx_languages
 
-INDEX_VERSION = 4
-INDEX_FILENAME = "index.json"
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+INDEX_VERSION = 5
+INDEX_FILENAME = "index.sqlite"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
+LEGACY_JSON_FILENAME = "index.json"
+FTS5_TRIGRAM_SIZE = 3
+
+_ENTRY_COLUMNS = "ref, kind, title, text, document, anchor, source_order, parent, domain, object_type, name"
+_QUALIFIED_ENTRY_COLUMNS = ", ".join(f"entries.{column.strip()}" for column in _ENTRY_COLUMNS.split(","))
+_SELECT_ALL_ENTRIES = f"SELECT {_ENTRY_COLUMNS} FROM entries ORDER BY id"  # noqa: S608
+_SELECT_OBJECT_IDENTITY = (
+    f"SELECT {_ENTRY_COLUMNS} FROM entries "  # noqa: S608
+    "WHERE kind = 'object' AND domain = ? AND object_type = ? AND name = ?"
+)
+_SELECT_ENTRY_REF = f"SELECT {_ENTRY_COLUMNS} FROM entries WHERE ref = ?"  # noqa: S608
+_SELECT_OBJECT_NAME = f"SELECT {_ENTRY_COLUMNS} FROM entries WHERE kind = 'object' AND name = ? ORDER BY ref LIMIT 6"  # noqa: S608
+_SELECT_SEARCHABLE_ENTRIES = f"SELECT {_ENTRY_COLUMNS} FROM entries WHERE searchable = 1 ORDER BY id"  # noqa: S608
+_SELECT_FTS_ENTRIES = f"""SELECT {_QUALIFIED_ENTRY_COLUMNS}
+    FROM entries_fts JOIN entries ON entries.id = entries_fts.rowid
+    WHERE entries_fts MATCH ? AND entries.searchable = 1
+    ORDER BY bm25(entries_fts), entries.ref"""  # noqa: S608
+_SELECT_TRIGRAM_ENTRIES = f"""SELECT {_QUALIFIED_ENTRY_COLUMNS}
+    FROM entries_trigram JOIN entries ON entries.id = entries_trigram.rowid
+    WHERE entries_trigram MATCH ? AND entries.searchable = 1
+    ORDER BY bm25(entries_trigram), entries.ref"""  # noqa: S608
+_SELECT_CHILDREN = f"SELECT {_ENTRY_COLUMNS} FROM entries WHERE parent = ? ORDER BY source_order, ref"  # noqa: S608
+_SELECT_DESCENDANTS = f"""WITH RECURSIVE tree AS (
+    SELECT {_ENTRY_COLUMNS} FROM entries WHERE parent = ?
+    UNION ALL
+    SELECT {_QUALIFIED_ENTRY_COLUMNS}
+    FROM entries JOIN tree ON entries.parent = tree.ref
+)
+SELECT {_ENTRY_COLUMNS} FROM tree"""  # noqa: S608
+
+_SCHEMA = """
+CREATE TABLE artifact (
+    schema_version INTEGER NOT NULL,
+    source TEXT,
+    sphinx_version TEXT NOT NULL,
+    extensions TEXT NOT NULL,
+    built_at TEXT NOT NULL,
+    git_commit TEXT,
+    language TEXT NOT NULL,
+    no_search TEXT NOT NULL,
+    source_documents TEXT NOT NULL
+);
+CREATE TABLE documents (
+    name TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    metadata TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE entries (
+    id INTEGER PRIMARY KEY,
+    ref TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL,
+    document TEXT NOT NULL,
+    anchor TEXT NOT NULL,
+    source_order INTEGER NOT NULL,
+    parent TEXT,
+    domain TEXT,
+    object_type TEXT,
+    name TEXT,
+    normalized_ref TEXT NOT NULL,
+    normalized_title TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    searchable INTEGER NOT NULL
+);
+CREATE INDEX entries_document_order ON entries(document, source_order, ref);
+CREATE INDEX entries_parent_order ON entries(parent, source_order, ref);
+CREATE INDEX entries_object_name ON entries(name) WHERE kind = 'object';
+CREATE INDEX entries_object_identity ON entries(domain, object_type, name) WHERE kind = 'object';
+CREATE INDEX entries_kind_domain ON entries(kind, domain);
+CREATE TABLE links (
+    source TEXT NOT NULL,
+    target TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL
+);
+CREATE INDEX links_source ON links(source);
+CREATE INDEX links_target ON links(target);
+CREATE VIRTUAL TABLE entries_fts USING fts5(
+    searchable,
+    content='',
+    tokenize='unicode61 remove_diacritics 2'
+);
+CREATE VIRTUAL TABLE entries_trigram USING fts5(
+    searchable,
+    content='',
+    tokenize='trigram'
+);
+"""
 
 
 def _sphinx_source_candidates(directory: Path) -> list[Path]:
@@ -58,6 +155,23 @@ def _index_candidates(directory: Path) -> list[Path]:
     return list(dict.fromkeys(candidates))
 
 
+def _legacy_json_candidates(directory: Path) -> list[Path]:
+    """Return old JSON index locations so callers receive a rebuild error."""
+    candidates: list[Path] = []
+    for root in (directory, *directory.parents):
+        candidates.extend(
+            (
+                root / LEGACY_JSON_FILENAME,
+                root / DEFAULT_INDEX.parent / LEGACY_JSON_FILENAME,
+                root / LEGACY_INDEX.parent / LEGACY_JSON_FILENAME,
+            )
+        )
+    candidates.extend(
+        source / DEFAULT_INDEX.parent / LEGACY_JSON_FILENAME for source in _sphinx_source_candidates(directory)
+    )
+    return list(dict.fromkeys(candidates))
+
+
 def _fold_text(text: str) -> str:
     """Casefold text and remove combining marks for accent-insensitive search."""
     normalized = unicodedata.normalize("NFKD", text.casefold())
@@ -81,6 +195,43 @@ def _search_words(text: str, language: SearchLanguage | None) -> set[str]:
     if language is None:
         return set(words)
     return {language.stem(word) for word in words}
+
+
+def _fts_query(text: str, language: SearchLanguage | None) -> str:
+    """Build an FTS5 AND query with prefix and language-aware stem alternatives."""
+    words = re.findall(r"\w+", text, flags=re.UNICODE) if language is None else language.split(text)
+    groups: list[str] = []
+    for word in dict.fromkeys(words):
+        folded = _fold_text(word)
+        alternatives = {folded, language.stem(folded) if language is not None else folded}
+        quoted = [f'"{term.replace(chr(34), chr(34) * 2)}"*' for term in sorted(alternatives) if term]
+        if quoted:
+            groups.append(f"({' OR '.join(quoted)})")
+    return " AND ".join(groups)
+
+
+def _trigram_query(text: str) -> str:
+    """Build an FTS5 trigram query from terms long enough to index."""
+    terms = dict.fromkeys(re.findall(r"\w+", text, flags=re.UNICODE))
+    quoted = [f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms if len(term) >= FTS5_TRIGRAM_SIZE]
+    return " AND ".join(quoted)
+
+
+def _entry_folded_text(entry: Entry) -> str:
+    """Return the folded text searched for exact and infix matches."""
+    return _fold_text(" ".join(filter(None, (entry.ref, entry.title, entry.name, entry.text))))
+
+
+def _entry_search_text(entry: Entry, language: SearchLanguage | None) -> str:
+    """Return folded source text plus language-aware terms for FTS retrieval."""
+    text = _entry_folded_text(entry)
+    terms = " ".join(sorted(_search_words(text, language)))
+    return f"{text} {terms}"
+
+
+def _storage_json(value: object) -> str:
+    """Encode JSON fields compactly while keeping their text inspectable in SQLite."""
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def _words_match(words: set[str], heading: str, body: str, language: SearchLanguage | None) -> bool:
@@ -121,6 +272,14 @@ class TargetNotFoundError(LensError):
 
 class StaleIndexWarning(UserWarning):
     """Warn that source files no longer match an index."""
+
+
+def _require_artifact(row: sqlite3.Row | None, path: Path) -> sqlite3.Row:
+    """Return the artifact row or report an incomplete SQLite index."""
+    if row is None:
+        msg = f"Invalid Lens SQLite index: {path}: missing artifact metadata"
+        raise LensError(msg)
+    return row
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,11 +369,13 @@ class Lens:
         index_path: Path | None = None,
         no_search: set[str] | frozenset[str] = frozenset(),
         documents: dict[str, DocumentInfo] | None = None,
+        _database_path: Path | None = None,
     ) -> None:
         """Create a Lens from already extracted entries and links."""
         self.source = source
-        self.entries = tuple(entries)
-        self.links = tuple(links)
+        self._entries: tuple[Entry, ...] | None = tuple(entries) if _database_path is None else None
+        self._links: tuple[Link, ...] | None = tuple(links) if _database_path is None else None
+        self._database_path = _database_path
         self.metadata = metadata or IndexMetadata()
         self.index_path = index_path
         self.no_search = frozenset(no_search)
@@ -222,60 +383,207 @@ class Lens:
         self.warning_count = 0
         self._by_ref = {entry.ref: entry for entry in entries}
 
+    @property
+    def entries(self) -> tuple[Entry, ...]:
+        """Return every entry, loading the complete table only when requested."""
+        if self._entries is None:
+            self._entries = tuple(self._select_entries(_SELECT_ALL_ENTRIES))
+            self._by_ref = {entry.ref: entry for entry in self._entries}
+        return self._entries
+
+    @property
+    def links(self) -> tuple[Link, ...]:
+        """Return every link, loading the complete table only when requested."""
+        if self._links is None:
+            with self._connect() as connection:
+                rows = connection.execute("SELECT source, target, label, kind FROM links ORDER BY rowid")
+                self._links = tuple(Link(*row) for row in rows)
+        return self._links
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        if self._database_path is None:
+            msg = "This Lens has no SQLite artifact"
+            raise LensError(msg)
+        connection = sqlite3.connect(f"file:{self._database_path}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+        finally:
+            connection.close()
+
     @classmethod
     def open(cls, path: str | Path = ".") -> Self:
         """Load an index file or discover it below a project directory."""
         index_path = Path(path)
         if index_path.is_dir():
             candidates = _index_candidates(index_path.resolve())
-            index_path = next((candidate for candidate in candidates if candidate.is_file()), candidates[1])
-        try:
-            payload = json.loads(index_path.read_text(encoding="utf-8"))
-        except FileNotFoundError as error:
+            found = next((candidate for candidate in candidates if candidate.is_file()), None)
+            if found is None:
+                legacy = next(
+                    (candidate for candidate in _legacy_json_candidates(index_path.resolve()) if candidate.is_file()),
+                    None,
+                )
+                if legacy is not None:
+                    cls._raise_legacy_json(legacy)
+                index_path = candidates[1]
+            else:
+                index_path = found
+        index_path = index_path.resolve()
+        if index_path.suffix == ".json":
+            cls._raise_legacy_json(index_path)
+        if not index_path.is_file():
             msg = f"Lens index not found: {index_path}"
-            raise LensError(msg) from error
-        if payload.get("version") != INDEX_VERSION:
-            msg = (
-                f"Unsupported Lens index version: {payload.get('version')!r}; "
-                "rebuild the index with the current version"
-            )
             raise LensError(msg)
-        metadata_payload = payload.get("metadata", {})
+        try:
+            connection = sqlite3.connect(f"file:{index_path}?mode=ro", uri=True)
+        except sqlite3.OperationalError as error:
+            msg = f"Cannot open Lens index: {index_path}: {error}"
+            raise LensError(msg) from error
+        connection.row_factory = sqlite3.Row
+        try:
+            artifact = _require_artifact(connection.execute("SELECT * FROM artifact").fetchone(), index_path)
+            if artifact["schema_version"] != INDEX_VERSION:
+                msg = (
+                    f"Unsupported Lens index version: {artifact['schema_version']!r}; "
+                    "rebuild the index with the current version"
+                )
+                raise LensError(msg)
+            document_rows = connection.execute("SELECT name, title, metadata FROM documents")
+            documents = {
+                row["name"]: DocumentInfo(title=row["title"], metadata=json.loads(row["metadata"]))
+                for row in document_rows
+            }
+        except sqlite3.DatabaseError as error:
+            msg = f"Invalid Lens SQLite index: {index_path}: {error}"
+            raise LensError(msg) from error
+        finally:
+            connection.close()
         lens = cls(
-            source=payload["source"],
-            entries=[Entry(**entry) for entry in payload["entries"]],
-            links=[Link(**link) for link in payload["links"]],
+            source=artifact["source"],
+            entries=[],
+            links=[],
             metadata=IndexMetadata(
-                sphinx_version=metadata_payload.get("sphinx_version", ""),
-                extensions=tuple(metadata_payload.get("extensions", ())),
-                built_at=metadata_payload.get("built_at", ""),
-                git_commit=metadata_payload.get("git_commit"),
-                documents=metadata_payload.get("documents", {}),
-                language=metadata_payload.get("language", ""),
+                sphinx_version=artifact["sphinx_version"],
+                extensions=tuple(json.loads(artifact["extensions"])),
+                built_at=artifact["built_at"],
+                git_commit=artifact["git_commit"],
+                documents=json.loads(artifact["source_documents"]),
+                language=artifact["language"],
             ),
             index_path=index_path,
-            no_search=payload.get("no_search", ()),
-            documents={docname: DocumentInfo(**record) for docname, record in payload.get("documents", {}).items()},
+            no_search=json.loads(artifact["no_search"]),
+            documents=documents,
+            _database_path=index_path,
         )
         lens._warn_if_stale()
         return lens
 
     def write(self, path: str | Path) -> Path:
-        """Serialize this Lens as deterministic JSON."""
-        index_path = Path(path)
+        """Write this Lens to a temporary SQLite database and replace atomically."""
+        index_path = Path(path).resolve()
         index_path.parent.mkdir(parents=True, exist_ok=True)
-        payload: dict[str, Any] = {
-            "version": INDEX_VERSION,
-            "source": self.source,
-            "metadata": asdict(self.metadata),
-            "no_search": sorted(self.no_search),
-            "documents": {docname: asdict(document) for docname, document in sorted(self.documents.items())},
-            "entries": [asdict(entry) for entry in self.entries],
-            "links": [asdict(link) for link in self.links],
-        }
-        index_path.write_text(f"{json.dumps(payload, indent=2, sort_keys=True)}\n", encoding="utf-8")
+        existing_mode = stat.S_IMODE(index_path.stat().st_mode) if index_path.exists() else None
+        while True:
+            temporary_path = index_path.with_name(f".{index_path.name}.{secrets.token_hex(8)}.tmp")
+            try:
+                handle = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+            except FileExistsError:
+                continue
+            os.close(handle)
+            break
+        try:
+            self._write_database(temporary_path)
+            if existing_mode is not None:
+                temporary_path.chmod(existing_mode)
+            temporary_path.replace(index_path)
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
         self.index_path = index_path
+        self._database_path = index_path
         return index_path
+
+    @staticmethod
+    def _raise_legacy_json(path: Path) -> None:
+        msg = f"JSON Lens indexes are no longer supported: {path}; rebuild the index to create {INDEX_FILENAME}"
+        raise LensError(msg)
+
+    def _write_database(self, path: Path) -> None:
+        language = _search_language(self.metadata.language)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.executescript(_SCHEMA)
+            connection.execute(
+                "INSERT INTO artifact VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    INDEX_VERSION,
+                    self.source,
+                    self.metadata.sphinx_version,
+                    _storage_json(self.metadata.extensions),
+                    self.metadata.built_at,
+                    self.metadata.git_commit,
+                    self.metadata.language,
+                    _storage_json(sorted(self.no_search)),
+                    _storage_json(self.metadata.documents),
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO documents(name, title, metadata) VALUES (?, ?, ?)",
+                (
+                    (name, document.title, _storage_json(document.metadata))
+                    for name, document in sorted(self.documents.items())
+                ),
+            )
+            connection.executemany(
+                """INSERT INTO entries(
+                    ref, kind, title, text, document, anchor, source_order, parent, domain, object_type, name,
+                    normalized_ref, normalized_title, normalized_name, searchable
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    (
+                        entry.ref,
+                        entry.kind,
+                        entry.title,
+                        entry.text,
+                        entry.document,
+                        entry.anchor,
+                        entry.order,
+                        entry.parent,
+                        entry.domain,
+                        entry.object_type,
+                        entry.name,
+                        _fold_text(entry.ref),
+                        _fold_text(entry.title),
+                        _fold_text(entry.name or ""),
+                        entry.document not in self.no_search,
+                    )
+                    for entry in self.entries
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO entries_fts(rowid, searchable) VALUES (?, ?)",
+                (
+                    (entry_id, _entry_search_text(entry, language))
+                    for entry_id, entry in enumerate(self.entries, start=1)
+                    if entry.document not in self.no_search
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO entries_trigram(rowid, searchable) VALUES (?, ?)",
+                (
+                    (entry_id, _entry_folded_text(entry))
+                    for entry_id, entry in enumerate(self.entries, start=1)
+                    if entry.document not in self.no_search
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO links(source, target, label, kind) VALUES (?, ?, ?, ?)",
+                ((link.source, link.target, link.label, link.kind) for link in self.links),
+            )
+            connection.execute("INSERT INTO entries_fts(entries_fts) VALUES ('optimize')")
+            connection.execute("INSERT INTO entries_trigram(entries_trigram) VALUES ('optimize')")
+            connection.execute("PRAGMA journal_mode = DELETE")
+            connection.execute("PRAGMA optimize")
 
     def _warn_if_stale(self) -> None:
         if self.index_path is None or not self.metadata.documents:
@@ -305,17 +613,39 @@ class Lens:
 
     def resolve(self, target: str, name: str | None = None) -> Entry:
         """Resolve a location, object name, or ``(object type, name)`` pair."""
-        if name is not None:
-            matches = [
-                entry
-                for entry in self.entries
-                if entry.kind == "object" and f"{entry.domain}:{entry.object_type}" == target and entry.name == name
-            ]
+        if self._database_path is None:
+            if name is not None:
+                matches = [
+                    entry
+                    for entry in self.entries
+                    if entry.kind == "object" and f"{entry.domain}:{entry.object_type}" == target and entry.name == name
+                ]
+            else:
+                exact = self._by_ref.get(target)
+                if exact is not None:
+                    return exact
+                matches = [entry for entry in self.entries if entry.kind == "object" and entry.name == target]
+        elif name is not None:
+            domain, separator, object_type = target.partition(":")
+            matches = (
+                self._select_entries(
+                    _SELECT_OBJECT_IDENTITY,
+                    (domain, object_type, name),
+                )
+                if separator
+                else []
+            )
         else:
-            exact = self._by_ref.get(target)
-            if exact is not None:
-                return exact
-            matches = [entry for entry in self.entries if entry.kind == "object" and entry.name == target]
+            exact = self._select_entries(
+                _SELECT_ENTRY_REF,
+                (target,),
+            )
+            if exact:
+                return exact[0]
+            matches = self._select_entries(
+                _SELECT_OBJECT_NAME,
+                (target,),
+            )
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -348,7 +678,8 @@ class Lens:
         search_language = _search_language(self.metadata.language)
         words = _search_words(search_needle, search_language)
         results: list[SearchResult] = []
-        for entry in self.entries:
+        candidates = self._locate_candidates(search_needle, search_language, regex=regex)
+        for entry in candidates:
             if not self._entry_allowed(entry, kinds, domain, under):
                 continue
             heading = " ".join(filter(None, (entry.ref, entry.title, entry.name)))
@@ -378,9 +709,55 @@ class Lens:
                 exact=exact,
                 coverage=_term_coverage(words, folded_heading, folded_body, search_language),
             )
-            results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, search_needle)))
+            results.append(
+                SearchResult(
+                    entry=entry,
+                    score=score,
+                    excerpt=self._excerpt(entry.text, search_needle, words=words, language=search_language),
+                )
+            )
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
+
+    def _locate_candidates(
+        self,
+        search_needle: str,
+        language: SearchLanguage | None,
+        *,
+        regex: bool,
+    ) -> tuple[Entry, ...] | list[Entry]:
+        if self._database_path is None:
+            return self.entries
+        if regex:
+            return self._select_entries(_SELECT_SEARCHABLE_ENTRIES)
+        match = _fts_query(search_needle, language)
+        trigram_match = _trigram_query(search_needle)
+        if not trigram_match:
+            return self._select_entries(_SELECT_SEARCHABLE_ENTRIES)
+        candidates = self._select_entries(_SELECT_TRIGRAM_ENTRIES, (trigram_match,))
+        if match:
+            candidates.extend(self._select_entries(_SELECT_FTS_ENTRIES, (match,)))
+        return list({entry.ref: entry for entry in candidates}.values())
+
+    def _select_entries(self, sql: str, parameters: tuple[object, ...] = ()) -> list[Entry]:
+        with self._connect() as connection:
+            return [self._entry_from_row(row) for row in connection.execute(sql, parameters)]
+
+    @staticmethod
+    def _entry_from_row(row: sqlite3.Row) -> Entry:
+        return Entry(
+            ref=row["ref"],
+            kind=row["kind"],
+            title=row["title"],
+            text=row["text"],
+            document=row["document"],
+            anchor=row["anchor"],
+            order=row["source_order"],
+            parent=row["parent"],
+            domain=row["domain"],
+            object_type=row["object_type"],
+            name=row["name"],
+        )
 
     def _entry_allowed(
         self,
@@ -462,21 +839,70 @@ class Lens:
         """Return references originating below a semantic target."""
         entry = self.resolve(target)
         locations = {entry.location, *(child.location for child in self._descendants(entry.ref))}
+        if self._database_path is not None:
+            placeholders = ", ".join("?" for _ in locations)
+            with self._connect() as connection:
+                rows = connection.execute(
+                    f"SELECT source, target, label, kind FROM links "  # noqa: S608
+                    f"WHERE source IN ({placeholders}) ORDER BY rowid",
+                    tuple(locations),
+                )
+                return tuple(Link(*row) for row in rows)
         return tuple(link for link in self.links if link.source in locations)
 
     def linked(self, target: str) -> LinkSet:
         """Return incoming and outgoing references for a target."""
         entry = self.resolve(target)
         outgoing = self.references(target)
+        if self._database_path is not None:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT source, target, label, kind FROM links WHERE target = ? ORDER BY rowid",
+                    (entry.location,),
+                )
+                return LinkSet(incoming=tuple(Link(*row) for row in rows), outgoing=outgoing)
         incoming = tuple(link for link in self.links if link.target == entry.location)
         return LinkSet(incoming=incoming, outgoing=outgoing)
 
     def _children(self, parent: str) -> list[Entry]:
+        if self._database_path is not None:
+            return self._select_entries(
+                _SELECT_CHILDREN,
+                (parent,),
+            )
         return sorted((entry for entry in self.entries if entry.parent == parent), key=lambda entry: entry.sort_key)
 
     def _descendants(self, parent: str) -> list[Entry]:
         """Return every nested entry below ``parent``, depth first in source order."""
+        if self._database_path is not None:
+            descendants = self._select_entries(
+                _SELECT_DESCENDANTS,
+                (parent,),
+            )
+            by_parent: dict[str, list[Entry]] = {}
+            for entry in descendants:
+                if entry.parent is not None:
+                    by_parent.setdefault(entry.parent, []).append(entry)
+            for children in by_parent.values():
+                children.sort(key=lambda entry: entry.sort_key)
+
+            def walk(current: str) -> list[Entry]:
+                return [nested for child in by_parent.get(current, ()) for nested in (child, *walk(child.ref))]
+
+            return walk(parent)
         return [nested for child in self._children(parent) for nested in (child, *self._descendants(child.ref))]
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the complete index model as JSON-compatible values."""
+        return {
+            "version": INDEX_VERSION,
+            "source": self.source,
+            "metadata": asdict(self.metadata),
+            "no_search": sorted(self.no_search),
+            "documents": {docname: asdict(document) for docname, document in sorted(self.documents.items())},
+            "entries": [asdict(entry) for entry in self.entries],
+            "links": [asdict(link) for link in self.links],
+        }
 
     @staticmethod
     def _search_score(
@@ -502,11 +928,25 @@ class Lens:
         return 0.4 + 0.2 * SequenceMatcher(None, needle, heading).ratio()
 
     @staticmethod
-    def _excerpt(text: str, needle: str, *, width: int = 180) -> str:
+    def _excerpt(
+        text: str,
+        needle: str,
+        *,
+        words: set[str] | None = None,
+        language: SearchLanguage | None = None,
+        width: int = 180,
+    ) -> str:
         normalized = " ".join(text.split())
         position = normalized.casefold().find(needle)
         if position < 0:
             position = _fold_text(normalized).find(_fold_text(needle))
+        if position < 0 and words:
+            for match in re.finditer(r"\w+", normalized, flags=re.UNICODE):
+                term = _fold_text(match.group())
+                stemmed = language.stem(term) if language is not None else term
+                if stemmed in words or (language is None and any(word in term for word in words)):
+                    position = match.start()
+                    break
         position = max(position, 0)
         start = max(0, position - width // 3)
         excerpt = normalized[start : start + width]

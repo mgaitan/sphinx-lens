@@ -13,7 +13,7 @@ results over scanning or loading entire source trees.
 1. Read the project's agent guidance first. It may declare a versioned index or
    a project-specific build command.
 2. Run query commands from the repository or Sphinx source tree. Lens discovers
-   `_build/lens/index.json` next to a nearby `conf.py`; use `-i` only when project
+   `_build/lens/index.sqlite` next to a nearby `conf.py`; use `-i` only when project
    guidance names a nonstandard artifact.
 3. Query an existing index directly. Do not rebuild ordinary HTML or regenerate a
    current index merely to answer a question.
@@ -24,7 +24,7 @@ results over scanning or loading entire source trees.
    known to be new or regenerated is also a reason to rebuild.
 5. To rebuild, use a project-specific command only when the repository documents
    one. Otherwise run `sphinx-lens build`; it discovers the applicable `conf.py`
-   and writes beside it at `_build/lens/index.json`. Pass the Sphinx source
+   and writes beside it at `_build/lens/index.sqlite`. Pass the Sphinx source
    directory explicitly only when discovery reports multiple projects.
 6. Identify the corpus shape before choosing a query: API corpora expose domain
    objects, while narrative corpora may contain only documents and sections.
@@ -54,9 +54,11 @@ results over scanning or loading entire source trees.
 - Use regex for naming families, optional words, anchors, or signatures.
 - Filter with `--kind object --domain py` for API lookup.
 - Use `links` for dependency, related-topic, and provenance questions.
-- Use `--json` with `jq` for projection, grouping, or custom predicates.
-- Use `rg` directly on the JSON for quick reconnaissance when ranking and
-  semantic filtering do not matter.
+- Use `--json` with `jq` for projection, grouping, or custom predicates. Export
+  all entries with `entries --json`, all links with `links --all --json`, or the
+  complete model with `dump --json`.
+- Pipe `dump --json` to `rg` for quick reconnaissance when ranking and semantic
+  filtering do not matter.
 
 Do not treat unresolved links as missing source content. They may be contextual
 domain references, intersphinx targets, or stale anchors outside the local
