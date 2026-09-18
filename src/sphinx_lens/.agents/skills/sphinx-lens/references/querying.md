@@ -9,7 +9,7 @@ From the repository or Sphinx source tree, let Lens discover the applicable
 sphinx-lens build
 ```
 
-This writes `_build/lens/index.json` inside the discovered source directory. If
+This writes `_build/lens/index.sqlite` inside the discovered source directory. If
 multiple Sphinx projects are present, select one explicitly with
 `sphinx-lens build path/to/sphinx-source`. The equivalent native Sphinx command
 is:
@@ -59,15 +59,16 @@ sphinx-lens locate 'QuerySet\..*' --regex --kind object --domain py --json \
 Query the full index model when ranking is unnecessary:
 
 ```bash
-jq -r '.entries[] | select(.kind == "object" and .object_type == "class") | .ref' \
-  path/to/index/index.json
-jq -r '.links[] | select(.kind == "unresolved") | .target' \
-  path/to/index/index.json | sort | uniq -c | sort -nr
-rg -n -i 'transaction|atomic' path/to/index/index.json
+sphinx-lens entries --json -i path/to/index \
+  | jq -r '.[] | select(.kind == "object" and .object_type == "class") | .ref'
+sphinx-lens links --all --json -i path/to/index \
+  | jq -r '.[] | select(.kind == "unresolved") | .target' \
+  | sort | uniq -c | sort -nr
+sphinx-lens dump --json -i path/to/index | rg -n -i 'transaction|atomic'
 ```
 
-Prefer `jq` for fields and relationships. Prefer `rg` for a quick literal or
-regex scan across the artifact.
+Prefer `jq` for fields and relationships. Prefer `rg` over `dump --json` for a
+quick literal or regex scan across the exported model.
 
 ## Python API
 

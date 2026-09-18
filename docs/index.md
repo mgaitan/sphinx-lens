@@ -39,7 +39,7 @@ it renders HTML and throws all of it away.
 ## What Sphinx Lens does
 
 Sphinx Lens is a Sphinx builder that keeps that knowledge. Instead of HTML it
-writes a single JSON index of everything the compiled environment already knows:
+writes a single SQLite index of everything the compiled environment already knows:
 documents, sections, and domain objects, each with a stable reference and its
 own scoped text, plus the full directed graph of cross-references between them.
 

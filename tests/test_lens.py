@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
@@ -61,7 +63,7 @@ def lens(tmp_path: Path) -> Lens:
 
 def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     """Indexes serialize and load from files and conventional directories."""
-    path = lens.write(tmp_path / "_build" / "lens" / "index.json")
+    path = lens.write(tmp_path / "_build" / "lens" / "index.sqlite")
     loaded = Lens.open(tmp_path)
     assert loaded.source == lens.source
     assert loaded.entries == lens.entries
@@ -70,8 +72,45 @@ def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     assert loaded.documents == lens.documents
     assert loaded.index_path == path
 
-    direct = lens.write(tmp_path / "portable" / "index.json")
+    direct = lens.write(tmp_path / "portable" / "index.sqlite")
     assert Lens.open(direct.parent).index_path == direct
+
+
+def test_sqlite_locate_uses_fts_without_loading_all_entries(lens: Lens, tmp_path: Path):
+    """Normal text search keeps the complete entries table lazy."""
+    with pytest.raises(LensError, match="no SQLite artifact"), lens._connect():
+        pass
+
+    loaded = Lens.open(lens.write(tmp_path / "index.sqlite"))
+
+    assert loaded._entries is None
+    assert loaded.locate("connection timeout")[0].entry.ref == "guide#timeouts"
+    assert loaded.locate("!!!") == []
+    assert loaded._entries is None
+
+
+def test_sqlite_schema_has_structural_indexes(lens: Lens, tmp_path: Path):
+    """The artifact indexes canonical, hierarchy, and link lookups."""
+    path = lens.write(tmp_path / "index.sqlite")
+
+    with closing(sqlite3.connect(path)) as connection:
+        indexes = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+    assert {"entries_document_order", "entries_parent_order", "links_source", "links_target"} <= indexes
+    assert "entries_fts" in tables
+
+
+def test_failed_write_keeps_previous_artifact(lens: Lens, tmp_path: Path, mocker):
+    """A write failure leaves the last complete database in place."""
+    path = lens.write(tmp_path / "index.sqlite")
+    original = path.read_bytes()
+    mocker.patch.object(lens, "_write_database", side_effect=RuntimeError("interrupted"))
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        lens.write(path)
+
+    assert path.read_bytes() == original
 
 
 def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
@@ -80,7 +119,7 @@ def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):
     nested = source / "guide"
     nested.mkdir(parents=True)
     (source / "conf.py").touch()
-    path = lens.write(source / "_build" / "lens" / "index.json")
+    path = lens.write(source / "_build" / "lens" / "index.sqlite")
 
     assert Lens.open(tmp_path).index_path == path
     assert Lens.open(nested).index_path == path
@@ -108,34 +147,56 @@ def test_open_warns_when_local_sources_changed(lens: Lens, tmp_path: Path):
     document.write_text("current", encoding="utf-8")
     lens.source = "../source"
     lens.metadata = IndexMetadata(documents={"guide.rst": sha256(b"original").hexdigest()})
-    index_path = lens.write(tmp_path / "artifact" / "index.json")
+    index_path = lens.write(tmp_path / "artifact" / "index.sqlite")
 
     with pytest.warns(StaleIndexWarning, match="1 source file"):
         Lens.open(index_path)
 
     lens.source = "../unavailable"
-    unavailable_path = lens.write(tmp_path / "portable" / "index.json")
+    unavailable_path = lens.write(tmp_path / "portable" / "index.sqlite")
     assert Lens.open(unavailable_path).resolve("guide").title == "Guide"
 
     lens.source = None
-    portable_path = lens.write(tmp_path / "portable-no-source" / "index.json")
+    portable_path = lens.write(tmp_path / "portable-no-source" / "index.sqlite")
     with pytest.warns(StaleIndexWarning, match="cannot be checked"):
         Lens.open(portable_path)
 
 
-def test_open_errors(tmp_path: Path):
+def test_open_errors(tmp_path: Path, mocker):
     """Missing and incompatible indexes have actionable errors."""
     with pytest.raises(LensError, match="index not found"):
         Lens.open(tmp_path)
 
-    path = tmp_path / "index.json"
-    path.write_text(json.dumps({"version": 999}), encoding="utf-8")
-    with pytest.raises(LensError, match="Unsupported"):
+    legacy = tmp_path / "index.json"
+    legacy.write_text(json.dumps({"version": 4}), encoding="utf-8")
+    with pytest.raises(LensError, match=r"JSON.*no longer supported.*rebuild"):
+        Lens.open(legacy)
+    with pytest.raises(LensError, match=r"JSON.*no longer supported.*rebuild"):
+        Lens.open(tmp_path)
+
+    path = tmp_path / "incompatible.sqlite"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("CREATE TABLE artifact (schema_version INTEGER)")
+        connection.execute("INSERT INTO artifact VALUES (999)")
+    with pytest.raises(LensError, match=r"Unsupported.*rebuild"):
         Lens.open(path)
 
-    path.write_text(json.dumps({"version": 3}), encoding="utf-8")
-    with pytest.raises(LensError, match="rebuild"):
-        Lens.open(path)
+    empty = tmp_path / "empty.sqlite"
+    with closing(sqlite3.connect(empty)) as connection, connection:
+        connection.execute("CREATE TABLE artifact (schema_version INTEGER)")
+    with pytest.raises(LensError, match="missing artifact metadata"):
+        Lens.open(empty)
+
+    corrupt = tmp_path / "corrupt.sqlite"
+    corrupt.write_text("not a database", encoding="utf-8")
+    with pytest.raises(LensError, match="Invalid Lens SQLite index"):
+        Lens.open(corrupt)
+
+    unreadable = tmp_path / "unreadable.sqlite"
+    unreadable.touch()
+    mocker.patch("sphinx_lens.lens.sqlite3.connect", side_effect=sqlite3.OperationalError("denied"))
+    with pytest.raises(LensError, match=r"Cannot open Lens index.*denied"):
+        Lens.open(unreadable)
 
 
 def test_resolve(lens: Lens):

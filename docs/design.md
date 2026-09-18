@@ -20,10 +20,10 @@ flowchart LR
     C["Project extensions and domains"] --> B
     B --> D["Sphinx resolves cross-references"]
     D --> E["lens builder extracts scopes and links"]
-    E --> J["_build/lens/index.json"]
+    E --> J["_build/lens/index.sqlite"]
     J --> F["CLI"]
     J --> G["Python API"]
-    J --> H["jq / rg"]
+    J --> H["JSON exports for jq / rg"]
     F --> I["Agent or developer"]
     G --> I
     H --> I
@@ -79,7 +79,7 @@ them is enough:
 | --- | --- | --- |
 | `objects.inv` | Domain objects and target locations | Section scopes, text, hierarchy, and directed links |
 | `searchindex.js` | Theme-facing lexical search data | Stable domain references and a format independent of HTML builders |
-| `doctrees/` | Complete docutils trees | A versioned JSON contract that does not unpickle project-controlled Python objects |
+| `doctrees/` | Complete docutils trees | A versioned SQLite schema that does not unpickle project-controlled Python objects |
 
 The compiled link graph is the real difference. Nothing else Sphinx writes lets
 a caller ask what a scope cites and what cites it without rerunning Sphinx or
@@ -113,8 +113,8 @@ search and consumers do not lose the image's destination or alternative text.
 Some things this project chooses to leave out, and why.
 
 Sphinx stores its environment as a Python pickle, and unpickling it executes
-project-controlled code. An artifact meant to be published, cached, and read by
-other processes and other languages cannot require that, so the index is JSON.
+project-controlled code. Lens instead writes a SQLite database that can be read
+without importing the Sphinx project or running its code.
 
 `locate` is lexical. It folds accents and uses Sphinx's configured stemmer when
 one exists, then turns a phrase into a stable reference so the caller can read
@@ -125,16 +125,18 @@ Staleness checks need the source tree. An index written outside that tree keeps
 its content portable and warns when the source path is unavailable, rather than
 claiming that its hashes were checked.
 
-Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`,
-`--json`, and `jq`. A query language of its own would be one more thing to learn
-and one more thing to maintain.
+Precise and ad hoc analysis is covered by `--regex`, `--kind`, `--domain`, and
+JSON output. `dump --json`, `entries --json`, and `links --all --json` keep the
+model available to `jq` and `rg` without making SQL part of the public workflow.
 
-The index is a file. A build produces it, a repository can commit it, and any
+The index is a file. A build produces it, CI can cache or publish it, and any
 process can read it without a daemon, a port, or credentials. Anything that
 speaks a protocol is an adapter over `Lens`, and adapters do not get to shape
 the data model.
 
-JSON is auditable, diffable, and greppable, which is what an artifact meant to
-be inspected should be. It is also parsed in full on every open, so repeated
-queries against a large corpus pay for that readability in startup time.
-[Real-world corpora](corpus_evaluation.md) measures how much.
+SQLite keeps the artifact auditable with standard tools, but the database file
+is neither meaningfully diffable nor directly greppable. The JSON export
+commands provide the textual interchange format. In return, canonical
+references, hierarchy, and links use B-tree indexes, while FTS5 narrows normal
+text searches before Lens applies its existing ranking and excerpt rules in
+Python. [Real-world corpora](corpus_evaluation.md) records the measured costs.

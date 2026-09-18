@@ -63,10 +63,21 @@ def get_parser() -> argparse.ArgumentParser:
         ("links", "Show incoming and outgoing references"),
     ):
         command_parser = subparsers.add_parser(command, help=help_text)
-        command_parser.add_argument("target")
+        command_parser.add_argument("target", nargs="?" if command == "links" else None)
         if command == "inspect":
             command_parser.add_argument("--no-text", action="store_true", help="Omit the entry text")
+        if command == "links":
+            command_parser.add_argument("--all", action="store_true", help="Export every link")
+            command_parser.add_argument("--json", action="store_true", help="Write structured links")
         _add_index_argument(command_parser)
+
+    entries_parser = subparsers.add_parser("entries", help="Export index entries")
+    entries_parser.add_argument("--json", action="store_true", help="Write structured entries")
+    _add_index_argument(entries_parser)
+
+    dump_parser = subparsers.add_parser("dump", help="Export the complete index model")
+    dump_parser.add_argument("--json", action="store_true", help="Write the model as JSON")
+    _add_index_argument(dump_parser)
     return parser
 
 
@@ -82,7 +93,26 @@ def _search_result_dict(result: SearchResult) -> dict[str, object]:
     }
 
 
-def main(args: list[str] | None = None) -> int:  # noqa: C901
+def _links_output(lens: Lens, target: str | None, *, all_links: bool) -> str:
+    if all_links and target is not None:
+        msg = "links accepts either TARGET or --all, not both"
+        raise LensError(msg)
+    if all_links:
+        return json.dumps([asdict(link) for link in lens.links], indent=2)
+    if target is None:
+        msg = "links requires TARGET or --all"
+        raise LensError(msg)
+    return json.dumps(asdict(lens.linked(target)), indent=2)
+
+
+def _entries_output(lens: Lens, *, structured: bool) -> str:
+    entries = [{**asdict(entry), "location": entry.location} for entry in lens.entries]
+    if structured:
+        return json.dumps(entries, indent=2)
+    return "\n".join(f"{entry['ref']}\t{entry['kind']}\t{entry['location']}" for entry in entries)
+
+
+def main(args: list[str] | None = None) -> int:  # noqa: C901, PLR0912
     """Run the main program."""
     parser = get_parser()
     opts = parser.parse_args(args=args)
@@ -133,7 +163,11 @@ def main(args: list[str] | None = None) -> int:  # noqa: C901
         elif opts.command == "read":
             print(lens.read(opts.target))
         elif opts.command == "links":
-            print(json.dumps(asdict(lens.linked(opts.target)), indent=2))
+            print(_links_output(lens, opts.target, all_links=opts.all))
+        elif opts.command == "entries":
+            print(_entries_output(lens, structured=opts.json))
+        elif opts.command == "dump":
+            print(json.dumps(lens.as_dict(), indent=2, sort_keys=True))
     except LensError as error:
         print(f"sphinx-lens: error: {error}", file=sys.stderr)
         return 1

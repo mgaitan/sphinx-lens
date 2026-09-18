@@ -17,8 +17,8 @@ a documented object with a canonical name, and where every cross-reference
 points. Then it renders HTML and throws that away.
 
 Sphinx Lens is a Sphinx builder that writes it down instead. The output is a
-single JSON index of documents, sections, and domain objects, each with a stable
-reference and its own scoped text, plus the compiled link graph between them.
+single SQLite index of documents, sections, and domain objects, each with a
+stable reference and its own scoped text, plus the compiled link graph between them.
 Coding agents get to read one precise scope instead of grepping a source tree.
 
 Each scope remains separately addressable. Consumers can retrieve the relevant
@@ -40,7 +40,7 @@ sphinx-lens links guide/network#timeouts
 
 The `lens` builder is discovered through Sphinx's builder entry point; no
 `conf.py` change is required. It loads the project's formats, extensions, and
-domains, then writes `docs/_build/lens/index.json`. Query commands discover that
+domains, then writes `docs/_build/lens/index.sqlite`. Query commands discover that
 index from the repository root or anywhere inside the Sphinx source tree.
 Run `sphinx-lens build` from the repository to discover `conf.py` and create the
 index without spelling out the source directory.

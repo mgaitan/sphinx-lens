@@ -100,7 +100,7 @@ when checking structure without printing the full text.
 
 ## `Lens.open()` rejects the index
 
-Lens indexes have a versioned JSON contract. An error such as
+Lens indexes have a versioned SQLite schema. An error such as
 `Unsupported Lens index version: 3; rebuild the index with the current version`
 means that the artifact was created by an older Lens release. It is not safe to
 reinterpret the old payload as the current schema, so rebuild it with the same
@@ -111,5 +111,5 @@ sphinx-build -b lens -c sphinx/ knowledge/ /tmp/knowledge-lens
 ```
 
 If the error instead says `Lens index not found`, pass either the directory that
-contains `index.json` or the path to the file itself. `--index` accepts both forms
+contains `index.sqlite` or the path to the file itself. `--index` accepts both forms
 for query commands.

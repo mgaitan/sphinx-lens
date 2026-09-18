@@ -1,14 +1,15 @@
 # CLI and Python API
 
-The complete surface: one builder, five commands, one class, and the shape of
+The complete surface: one builder, seven commands, one class, and the shape of
 the file they all read. [Getting started](getting_started.md) is the guided
 version of the same material.
 
-Query commands discover `_build/lens/index.json` next to a Sphinx `conf.py`
+Query commands discover `_build/lens/index.sqlite` next to a Sphinx `conf.py`
 from the repository root or from a directory inside the source tree. They also
-recognize a direct `index.json`, a root `_build/lens/`, and the legacy
+recognize a direct `index.sqlite`, a root `_build/lens/`, and the legacy
 `.sphinx-lens/` location. Use `--index` to select an artifact outside that
-conventional project layout; it accepts either its directory or the JSON file.
+conventional project layout; it accepts either its directory or the SQLite file.
+JSON indexes from earlier releases are rejected with a rebuild instruction.
 
 ## Sphinx builder
 
@@ -20,7 +21,7 @@ sphinx-build -b lens docs/ docs/_build/lens/
 ```
 
 The builder loads the same sources, extensions, domains, objects, and references
-as every other Sphinx build. Its only output is `_build/lens/index.json` inside
+as every other Sphinx build. Its only output is `_build/lens/index.sqlite` inside
 the selected Sphinx source directory.
 
 (search-exclusions)=
@@ -65,12 +66,15 @@ sphinx-lens locate QUERY [--index PATH] [--limit N]
                    [--regex] [--kind KIND] [--domain DOMAIN] [--under PATH] [--json]
 sphinx-lens inspect TARGET [--no-text] [--index PATH]
 sphinx-lens read TARGET [--index PATH]
-sphinx-lens links TARGET [--index PATH]
+sphinx-lens links TARGET [--json] [--index PATH]
+sphinx-lens links --all --json [--index PATH]
+sphinx-lens entries [--json] [--index PATH]
+sphinx-lens dump --json [--index PATH]
 ```
 
 `sphinx-lens build` is a convenience wrapper around the native builder. With no
 `SOURCE`, it discovers the nearby `conf.py`; if multiple projects are found, it
-asks for an explicit source. It writes `SOURCE/_build/lens/index.json` by
+asks for an explicit source. It writes `SOURCE/_build/lens/index.sqlite` by
 default. Use `--conf-dir` when
 `conf.py` lives outside `SOURCE`, and `--doctree-dir` to keep Sphinx's cached
 doctrees outside the source tree. `--fail-on-warning` applies Sphinx's
@@ -119,16 +123,16 @@ Targets use one of these forms:
 
 ## Shell composition
 
-Use `jq` for structured predicates and projections over either search results or
-the complete model:
+Use `jq` for structured predicates and projections over search results or an
+exported table:
 
 ```bash
 sphinx-lens locate 'QuerySet\..*' --regex --kind object --json \
   -i docs/_build/lens \
   | jq -r '.[] | [.entry.ref, .score] | @tsv'
 
-jq -r '.links[] | select(.kind == "unresolved") | .target' \
-  docs/_build/lens/index.json \
+sphinx-lens links --all --json -i docs/_build/lens \
+  | jq -r '.[] | select(.kind == "unresolved") | .target' \
   | sort | uniq -c | sort -nr
 ```
 
@@ -136,7 +140,7 @@ Use `rg` when a quick textual scan is enough and ranking or typed fields do not
 matter:
 
 ```bash
-rg -n -i 'transaction|atomic' docs/_build/lens/index.json
+sphinx-lens dump --json -i docs/_build/lens | rg -n -i 'transaction|atomic'
 ```
 
 ## Python API
@@ -183,49 +187,40 @@ resolved the document. Lens does not copy or embed the image asset in the index.
 
 ## Index model
 
-The version 4 JSON document has these top-level fields:
+Schema version 5 is a SQLite database with these public data groups:
 
-| Field | JSON type | Contract |
-| --- | --- | --- |
-| `version` | integer | The payload schema version. Current value: `4`. |
-| `source` | string or `null` | Source directory relative to the artifact, or `null` when no portable relative path exists. |
-| `metadata` | object | Build metadata and source-document hashes; see the table below. |
-| `no_search` | array of strings | Document names omitted from `locate`. |
-| `documents` | object | Map from document name to its title and Sphinx metadata. |
-| `entries` | array of objects | Documents, sections, and domain objects. |
-| `links` | array of objects | Internal, external, and unresolved directed references. |
+| Table | Contents |
+| --- | --- |
+| `artifact` | Schema version, source path, Sphinx version, extensions, build time, Git commit, language, exclusions, and source hashes. |
+| `documents` | Document name, title, and file-wide Sphinx metadata. |
+| `entries` | Documents, sections, and domain objects with their hierarchy and scoped text. |
+| `links` | Internal, external, and unresolved directed references. |
+| `entries_fts` | A contentless FTS5 candidate index over folded text and language-aware terms. |
 
-`metadata` contains:
+`entries.ref` is unique. B-tree indexes cover document order, parent traversal,
+object names and identities, kinds and domains, link sources, and link targets.
+Short identifying fields keep normalized values for exact comparisons. The
+original `ref`, `title`, `name`, and `text` remain unchanged for output and
+ranking.
 
-| Field | JSON type | Contract |
-| --- | --- | --- |
-| `sphinx_version` | string | Sphinx version used for the build. |
-| `extensions` | array of strings | Extensions enabled in the Sphinx environment. |
-| `built_at` | string | UTC build timestamp in ISO 8601 format. |
-| `git_commit` | string or `null` | Git commit found at the source root, when available. |
-| `documents` | object | Map from source-relative document path to its SHA-256 hash. |
-| `language` | string | Sphinx's configured search language. |
+FTS5 uses the `unicode61` tokenizer with diacritic removal. During the build,
+Lens folds case and accents and appends terms produced by Sphinx's configured
+language stemmer. At query time FTS5 selects candidates; Lens then applies the
+same exact-name, heading, body, term-coverage, ranking, deduplication, and
+excerpt rules used by the Python API. Regex queries scan the structurally
+filtered entry rows and use Python regular expressions.
 
-Each value in `documents` has a `title` string and a `metadata` object. The
-metadata is kept as Sphinx recorded it; MyST JSON-encodes non-scalar frontmatter
-values. Each object in `entries` has the following fields:
+`dump --json` exports the complete model with the former top-level shape:
+`version`, `source`, `metadata`, `no_search`, `documents`, `entries`, and
+`links`. `entries --json` and `links --all --json` avoid exporting unrelated
+data. Each entry contains `ref`, `kind`, `title`, `text`, `document`, `anchor`,
+`order`, `parent`, `domain`, `object_type`, and `name`; CLI entry output also
+adds the derived physical `location`.
 
-| Field | JSON type | Contract |
-| --- | --- | --- |
-| `ref`, `kind`, `title`, `text`, `document` | strings | Stable reference, entry kind, display title, own normalized text, and containing document. |
-| `anchor` | string | Physical anchor, or empty for a document. |
-| `order` | integer | Position used to restore source order among siblings. |
-| `parent` | string or `null` | Reference of the containing entry. |
-| `domain`, `object_type`, `name` | string or `null` | Domain-object fields; `null` for documents and sections. |
-
-Each object in `links` has four string fields: `source`, `target`, `label`, and
-`kind`. `Entry.location` is derived from `document` and `anchor`, so it is not a
-separate field in the JSON payload.
-
-The `version` field applies to the complete payload. An incompatible schema change
-increments it; `Lens.open()` accepts only the current version and raises
-`LensError` with a rebuild message for older artifacts. Readers must not silently
-reinterpret an older payload as version 4.
+An incompatible schema change increments the version in `artifact`.
+`Lens.open()` accepts only the current version and raises `LensError` with a
+rebuild message for older SQLite artifacts. Version 4 JSON artifacts are
+intentionally unsupported and receive the same rebuild guidance.
 
 RST has no YAML frontmatter block. Use a leading docinfo field list instead;
 Sphinx records custom RST fields as strings:
@@ -275,6 +270,6 @@ Sphinx titles a document from its single top-level section, and that section is
 addressed as the document itself rather than as `document#anchor`, so its prose
 belongs to the document entry and is stored there exactly once.
 
-The index is a portable intermediate representation and nothing more: one JSON
-file, readable without Sphinx, a database, or a model. `locate` is a reference
+The index is a portable intermediate representation: one SQLite file, readable
+without Sphinx, a server, credentials, or a model. `locate` is a reference
 finder, not semantic similarity search.

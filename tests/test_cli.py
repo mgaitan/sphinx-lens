@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sphinx_lens import get_version, main
+from sphinx_lens.lens import INDEX_VERSION
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -130,9 +131,29 @@ def test_build_and_query_commands(
     assert main(["links", "guide#connection-timeout", "--index", str(output)]) == 0
     assert '"outgoing"' in capsys.readouterr().out
 
+    assert main(["entries", "--json", "--index", str(output)]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["kind"] == "document"
+
+    assert main(["entries", "--index", str(output)]) == 0
+    assert "api\tdocument\tapi" in capsys.readouterr().out
+
+    assert main(["links", "--all", "--json", "--index", str(output)]) == 0
+    assert isinstance(json.loads(capsys.readouterr().out), list)
+
+    assert main(["dump", "--json", "--index", str(output)]) == 0
+    dump = json.loads(capsys.readouterr().out)
+    assert dump["version"] == INDEX_VERSION
+    assert dump["entries"]
+
+    assert main(["links", "--index", str(output)]) == 1
+    assert "requires TARGET or --all" in capsys.readouterr().err
+
+    assert main(["links", "guide", "--all", "--index", str(output)]) == 1
+    assert "either TARGET or --all" in capsys.readouterr().err
+
     monkeypatch.chdir(tmp_path)
     assert main(["build"]) == 0
-    assert (sphinx_project / "_build" / "lens" / "index.json").is_file()
+    assert (sphinx_project / "_build" / "lens" / "index.sqlite").is_file()
 
 
 def test_query_error(capsys: pytest.CaptureFixture):

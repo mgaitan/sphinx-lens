@@ -31,9 +31,9 @@ in `extensions`:
 uv run sphinx-lens build
 ```
 
-Lens finds the nearby `conf.py` and writes `_build/lens/index.json` inside that
+Lens finds the nearby `conf.py` and writes `_build/lens/index.sqlite` inside that
 Sphinx source directory. The result is an ordinary Sphinx artifact with the same
-lifecycle as HTML. A project may version, cache, publish, or remove it with its
+lifecycle as HTML. A project may cache, publish, or remove it with its
 other generated files.
 
 If the project contains generated pages that repeat other content, add their
