@@ -709,7 +709,13 @@ class Lens:
                 exact=exact,
                 coverage=_term_coverage(words, folded_heading, folded_body, search_language),
             )
-            results.append(SearchResult(entry=entry, score=score, excerpt=self._excerpt(entry.text, search_needle)))
+            results.append(
+                SearchResult(
+                    entry=entry,
+                    score=score,
+                    excerpt=self._excerpt(entry.text, search_needle, words=words, language=search_language),
+                )
+            )
         results.sort(key=lambda result: (-result.score, result.entry.ref))
         return self._distinct_results(results, limit)
 
@@ -922,11 +928,25 @@ class Lens:
         return 0.4 + 0.2 * SequenceMatcher(None, needle, heading).ratio()
 
     @staticmethod
-    def _excerpt(text: str, needle: str, *, width: int = 180) -> str:
+    def _excerpt(
+        text: str,
+        needle: str,
+        *,
+        words: set[str] | None = None,
+        language: SearchLanguage | None = None,
+        width: int = 180,
+    ) -> str:
         normalized = " ".join(text.split())
         position = normalized.casefold().find(needle)
         if position < 0:
             position = _fold_text(normalized).find(_fold_text(needle))
+        if position < 0 and words:
+            for match in re.finditer(r"\w+", normalized, flags=re.UNICODE):
+                term = _fold_text(match.group())
+                stemmed = language.stem(term) if language is not None else term
+                if stemmed in words or (language is None and any(word in term for word in words)):
+                    position = match.start()
+                    break
         position = max(position, 0)
         start = max(0, position - width // 3)
         excerpt = normalized[start : start + width]

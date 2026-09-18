@@ -50,10 +50,10 @@ the SQLite branch rebuilt the same corpus with cached doctrees.
 | --- | ---: | ---: |
 | Artifact size | 6,465,972 bytes | 20,185,088 bytes |
 | gzip size | 888,055 bytes | 8,695,519 bytes |
-| Full build with fresh doctrees | 34.35 s | 32.74 s |
-| Build peak resident memory | 361,356 KB | 346,740 KB |
-| Rebuild with no source changes | 8.51 s | 14.08 s |
-| Storage write from the same extracted model | 0.69 s | 7.61 s |
+| Full build with fresh doctrees | 34.35 s | 25.81 s |
+| Build peak resident memory | 361,356 KB | 344,060 KB |
+| Rebuild with no source changes | 8.51 s | 7.28 s |
+| Storage write from the same extracted model | 0.69 s | 1.00 s |
 | `Lens.open()` | 96 ms | 26 ms |
 | Five representative queries | 10.19-10.41 s each | 18-106 ms each |
 | New CLI process, `cargar productos con IVA` | 10.92 s | 0.40 s |
@@ -66,7 +66,7 @@ process did not materialize the complete `entries` table while running these
 normal text searches.
 
 The database is larger because it contains the complete document metadata and
-source hashes, the original entry text, B-tree indexes for navigation, and two
+source hashes, the extracted entry text, B-tree indexes for navigation, and two
 contentless FTS indexes. The trigram index preserves the previous substring
 search behavior, but makes the compressed SQLite artifact almost ten times the
 size of compressed JSON. This prototype favors query behavior and
@@ -75,6 +75,10 @@ database and replaced the final file after closing it; the artifact directory
 contained no journal or WAL sidecars. It does not yet update SQLite
 incrementally: the Lens builder writes every cached doctree and rebuilds the
 database even when Sphinx finds no changed sources.
+
+PyStemmer is a required dependency. Sphinx selects its C implementation through
+`snowballstemmer`; on this corpus, rebuilding with cached doctrees dropped from
+14.08 seconds to 7.28 seconds while producing the same Spanish stems.
 
 ## Sphinx Lens: MyST and glossary precision
 

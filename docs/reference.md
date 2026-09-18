@@ -201,7 +201,7 @@ Schema version 5 is a SQLite database with these public data groups:
 `entries.ref` is unique. B-tree indexes cover document order, parent traversal,
 object names and identities, kinds and domains, link sources, and link targets.
 Short identifying fields keep normalized values for exact comparisons. The
-original `ref`, `title`, `name`, and `text` remain unchanged for output and
+extracted `ref`, `title`, `name`, and `text` remain unchanged for output and
 ranking.
 
 FTS5 uses the `unicode61` tokenizer with diacritic removal for words and the
@@ -210,7 +210,9 @@ and accents and appends terms produced by Sphinx's configured language stemmer.
 At query time both indexes select candidates; Lens then applies the same
 exact-name, heading, body, term-coverage, ranking, deduplication, and excerpt
 rules used by the Python API. Queries without a term long enough for the
-trigram index and regex queries scan the searchable entry rows.
+trigram index and regex queries scan the searchable entry rows. When a
+stemmed match has no literal query text, Lens finds the matching display token
+before clipping the excerpt.
 
 `dump --json` exports the complete model with the former top-level shape:
 `version`, `source`, `metadata`, `no_search`, `documents`, `entries`, and

@@ -8,12 +8,13 @@ import sqlite3
 import stat
 from contextlib import closing
 from hashlib import sha256
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning, discover_source
-from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _term_coverage
+from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _search_language, _term_coverage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -326,6 +327,11 @@ def test_locate_folds_accents_and_stems():
     assert [result.entry.ref for result in spanish.locate("copio")] == ["guide"]
     assert spanish.locate("!!!") == []
 
+    language = _search_language("es")
+    assert language is not None
+    assert version("pystemmer")
+    assert language.stem("copiar") == "copi"
+
     accented = Lens(
         source=".",
         entries=[
@@ -351,6 +357,29 @@ def test_locate_folds_accents_and_stems():
     assert results[1].entry.ref == "body"
     assert results[0].score > results[1].score
     assert results[1].excerpt.startswith("The café")
+
+
+def test_locate_excerpt_centers_a_stemmed_match():
+    """Stemmed searches show the matching display word rather than the scope start."""
+    spanish = Lens(
+        source=".",
+        entries=[
+            Entry(
+                ref="guide",
+                kind="document",
+                title="Guide",
+                text=f"{'Introducción. ' * 30}Cómo copiar un grupo de usuarios.",
+                document="guide",
+            )
+        ],
+        links=[],
+        metadata=IndexMetadata(language="es"),
+    )
+
+    excerpt = spanish.locate("copio")[0].excerpt
+
+    assert excerpt.startswith("...")
+    assert "Cómo copiar un grupo" in excerpt
 
 
 def test_document_metadata_resolves_from_any_entry(lens: Lens):
