@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import stat
 from contextlib import closing
 from hashlib import sha256
 from typing import TYPE_CHECKING
@@ -17,6 +19,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 REFERENCE_COUNT = 2
+NEW_INDEX_MODE = 0o640
+SHARED_INDEX_MODE = 0o664
 
 
 @pytest.fixture
@@ -89,6 +93,15 @@ def test_sqlite_locate_uses_fts_without_loading_all_entries(lens: Lens, tmp_path
     assert loaded._entries is None
 
 
+def test_sqlite_locate_preserves_infix_matches(lens: Lens, tmp_path: Path):
+    """Trigram candidates preserve partial-word searches after persistence."""
+    loaded = Lens.open(lens.write(tmp_path / "index.sqlite"))
+
+    assert [result.entry.ref for result in loaded.locate("nection")] == ["guide#timeouts"]
+    assert [result.entry.ref for result in loaded.locate("nection details")] == ["guide#timeouts"]
+    assert loaded._entries is None
+
+
 def test_sqlite_schema_has_structural_indexes(lens: Lens, tmp_path: Path):
     """The artifact indexes canonical, hierarchy, and link lookups."""
     path = lens.write(tmp_path / "index.sqlite")
@@ -98,7 +111,42 @@ def test_sqlite_schema_has_structural_indexes(lens: Lens, tmp_path: Path):
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
     assert {"entries_document_order", "entries_parent_order", "links_source", "links_target"} <= indexes
-    assert "entries_fts" in tables
+    assert {"entries_fts", "entries_trigram"} <= tables
+
+
+def test_write_preserves_readable_permissions(lens: Lens, tmp_path: Path):
+    """New indexes honor the umask and replacements retain the existing mode."""
+    previous_umask = os.umask(0o027)
+    try:
+        path = lens.write(tmp_path / "index.sqlite")
+    finally:
+        os.umask(previous_umask)
+    assert stat.S_IMODE(path.stat().st_mode) == NEW_INDEX_MODE
+
+    path.chmod(SHARED_INDEX_MODE)
+    lens.write(path)
+    assert stat.S_IMODE(path.stat().st_mode) == SHARED_INDEX_MODE
+
+
+def test_write_retries_a_temporary_name_collision(lens: Lens, tmp_path: Path, mocker):
+    """Atomic writes choose another temporary name after a collision."""
+    collision = tmp_path / ".index.sqlite.collision.tmp"
+    collision.touch()
+    mocker.patch("sphinx_lens.lens.secrets.token_hex", side_effect=["collision", "available"])
+
+    assert lens.write(tmp_path / "index.sqlite").is_file()
+
+
+def test_open_keeps_an_absolute_database_path(lens: Lens, tmp_path: Path, monkeypatch):
+    """Lazy reads survive a working-directory change after a relative open."""
+    monkeypatch.chdir(tmp_path)
+    lens.write("index.sqlite")
+    loaded = Lens.open("index.sqlite")
+    monkeypatch.chdir(tmp_path.parent)
+
+    assert loaded.index_path == tmp_path / "index.sqlite"
+    assert loaded.resolve("guide").title == "Guide"
+    assert loaded.locate("nection")[0].entry.ref == "guide#timeouts"
 
 
 def test_failed_write_keeps_previous_artifact(lens: Lens, tmp_path: Path, mocker):

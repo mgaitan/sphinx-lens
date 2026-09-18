@@ -196,6 +196,7 @@ Schema version 5 is a SQLite database with these public data groups:
 | `entries` | Documents, sections, and domain objects with their hierarchy and scoped text. |
 | `links` | Internal, external, and unresolved directed references. |
 | `entries_fts` | A contentless FTS5 candidate index over folded text and language-aware terms. |
+| `entries_trigram` | A contentless FTS5 candidate index for partial-word matches. |
 
 `entries.ref` is unique. B-tree indexes cover document order, parent traversal,
 object names and identities, kinds and domains, link sources, and link targets.
@@ -203,12 +204,13 @@ Short identifying fields keep normalized values for exact comparisons. The
 original `ref`, `title`, `name`, and `text` remain unchanged for output and
 ranking.
 
-FTS5 uses the `unicode61` tokenizer with diacritic removal. During the build,
-Lens folds case and accents and appends terms produced by Sphinx's configured
-language stemmer. At query time FTS5 selects candidates; Lens then applies the
-same exact-name, heading, body, term-coverage, ranking, deduplication, and
-excerpt rules used by the Python API. Regex queries scan the structurally
-filtered entry rows and use Python regular expressions.
+FTS5 uses the `unicode61` tokenizer with diacritic removal for words and the
+`trigram` tokenizer for partial-word matches. During the build, Lens folds case
+and accents and appends terms produced by Sphinx's configured language stemmer.
+At query time both indexes select candidates; Lens then applies the same
+exact-name, heading, body, term-coverage, ranking, deduplication, and excerpt
+rules used by the Python API. Queries without a term long enough for the
+trigram index and regex queries scan the searchable entry rows.
 
 `dump --json` exports the complete model with the former top-level shape:
 `version`, `source`, `metadata`, `no_search`, `documents`, `entries`, and

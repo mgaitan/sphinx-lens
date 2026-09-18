@@ -6,8 +6,9 @@ import json
 import os
 import posixpath
 import re
+import secrets
 import sqlite3
-import tempfile
+import stat
 import unicodedata
 import warnings
 from contextlib import closing, contextmanager
@@ -29,6 +30,7 @@ INDEX_FILENAME = "index.sqlite"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
 LEGACY_JSON_FILENAME = "index.json"
+FTS5_TRIGRAM_SIZE = 3
 
 _ENTRY_COLUMNS = "ref, kind, title, text, document, anchor, source_order, parent, domain, object_type, name"
 _QUALIFIED_ENTRY_COLUMNS = ", ".join(f"entries.{column.strip()}" for column in _ENTRY_COLUMNS.split(","))
@@ -44,6 +46,10 @@ _SELECT_FTS_ENTRIES = f"""SELECT {_QUALIFIED_ENTRY_COLUMNS}
     FROM entries_fts JOIN entries ON entries.id = entries_fts.rowid
     WHERE entries_fts MATCH ? AND entries.searchable = 1
     ORDER BY bm25(entries_fts), entries.ref"""  # noqa: S608
+_SELECT_TRIGRAM_ENTRIES = f"""SELECT {_QUALIFIED_ENTRY_COLUMNS}
+    FROM entries_trigram JOIN entries ON entries.id = entries_trigram.rowid
+    WHERE entries_trigram MATCH ? AND entries.searchable = 1
+    ORDER BY bm25(entries_trigram), entries.ref"""  # noqa: S608
 _SELECT_CHILDREN = f"SELECT {_ENTRY_COLUMNS} FROM entries WHERE parent = ? ORDER BY source_order, ref"  # noqa: S608
 _SELECT_DESCENDANTS = f"""WITH RECURSIVE tree AS (
     SELECT {_ENTRY_COLUMNS} FROM entries WHERE parent = ?
@@ -105,6 +111,11 @@ CREATE VIRTUAL TABLE entries_fts USING fts5(
     searchable,
     content='',
     tokenize='unicode61 remove_diacritics 2'
+);
+CREATE VIRTUAL TABLE entries_trigram USING fts5(
+    searchable,
+    content='',
+    tokenize='trigram'
 );
 """
 
@@ -199,9 +210,21 @@ def _fts_query(text: str, language: SearchLanguage | None) -> str:
     return " AND ".join(groups)
 
 
+def _trigram_query(text: str) -> str:
+    """Build an FTS5 trigram query from terms long enough to index."""
+    terms = dict.fromkeys(re.findall(r"\w+", text, flags=re.UNICODE))
+    quoted = [f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms if len(term) >= FTS5_TRIGRAM_SIZE]
+    return " AND ".join(quoted)
+
+
+def _entry_folded_text(entry: Entry) -> str:
+    """Return the folded text searched for exact and infix matches."""
+    return _fold_text(" ".join(filter(None, (entry.ref, entry.title, entry.name, entry.text))))
+
+
 def _entry_search_text(entry: Entry, language: SearchLanguage | None) -> str:
     """Return folded source text plus language-aware terms for FTS retrieval."""
-    text = _fold_text(" ".join(filter(None, (entry.ref, entry.title, entry.name, entry.text))))
+    text = _entry_folded_text(entry)
     terms = " ".join(sorted(_search_words(text, language)))
     return f"{text} {terms}"
 
@@ -406,6 +429,7 @@ class Lens:
                 index_path = candidates[1]
             else:
                 index_path = found
+        index_path = index_path.resolve()
         if index_path.suffix == ".json":
             cls._raise_legacy_json(index_path)
         if not index_path.is_file():
@@ -457,13 +481,21 @@ class Lens:
 
     def write(self, path: str | Path) -> Path:
         """Write this Lens to a temporary SQLite database and replace atomically."""
-        index_path = Path(path)
+        index_path = Path(path).resolve()
         index_path.parent.mkdir(parents=True, exist_ok=True)
-        handle, temporary_name = tempfile.mkstemp(prefix=f".{index_path.name}.", suffix=".tmp", dir=index_path.parent)
-        os.close(handle)
-        temporary_path = Path(temporary_name)
+        existing_mode = stat.S_IMODE(index_path.stat().st_mode) if index_path.exists() else None
+        while True:
+            temporary_path = index_path.with_name(f".{index_path.name}.{secrets.token_hex(8)}.tmp")
+            try:
+                handle = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+            except FileExistsError:
+                continue
+            os.close(handle)
+            break
         try:
             self._write_database(temporary_path)
+            if existing_mode is not None:
+                temporary_path.chmod(existing_mode)
             temporary_path.replace(index_path)
         except BaseException:
             temporary_path.unlink(missing_ok=True)
@@ -537,10 +569,19 @@ class Lens:
                 ),
             )
             connection.executemany(
+                "INSERT INTO entries_trigram(rowid, searchable) VALUES (?, ?)",
+                (
+                    (entry_id, _entry_folded_text(entry))
+                    for entry_id, entry in enumerate(self.entries, start=1)
+                    if entry.document not in self.no_search
+                ),
+            )
+            connection.executemany(
                 "INSERT INTO links(source, target, label, kind) VALUES (?, ?, ?, ?)",
                 ((link.source, link.target, link.label, link.kind) for link in self.links),
             )
             connection.execute("INSERT INTO entries_fts(entries_fts) VALUES ('optimize')")
+            connection.execute("INSERT INTO entries_trigram(entries_trigram) VALUES ('optimize')")
             connection.execute("PRAGMA journal_mode = DELETE")
             connection.execute("PRAGMA optimize")
 
@@ -684,12 +725,13 @@ class Lens:
         if regex:
             return self._select_entries(_SELECT_SEARCHABLE_ENTRIES)
         match = _fts_query(search_needle, language)
-        if not match:
-            return []
-        return self._select_entries(
-            _SELECT_FTS_ENTRIES,
-            (match,),
-        )
+        trigram_match = _trigram_query(search_needle)
+        if not trigram_match:
+            return self._select_entries(_SELECT_SEARCHABLE_ENTRIES)
+        candidates = self._select_entries(_SELECT_TRIGRAM_ENTRIES, (trigram_match,))
+        if match:
+            candidates.extend(self._select_entries(_SELECT_FTS_ENTRIES, (match,)))
+        return list({entry.ref: entry for entry in candidates}.values())
 
     def _select_entries(self, sql: str, parameters: tuple[object, ...] = ()) -> list[Entry]:
         with self._connect() as connection:

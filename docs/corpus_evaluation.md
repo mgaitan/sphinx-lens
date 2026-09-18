@@ -48,16 +48,16 @@ the SQLite branch rebuilt the same corpus with cached doctrees.
 
 | Measurement | JSON on `main` | SQLite prototype |
 | --- | ---: | ---: |
-| Artifact size | 6,465,972 bytes | 12,132,352 bytes |
-| gzip size | 888,055 bytes | 2,571,847 bytes |
-| Full build with fresh doctrees | 34.35 s | 43.61 s |
-| Build peak resident memory | 361,356 KB | 346,060 KB |
-| Rebuild with no source changes | 8.51 s | 18.92 s |
-| Storage write from the same extracted model | 0.69 s | 11.24 s |
-| `Lens.open()` | 96 ms | 31 ms |
-| Five representative queries | 10.19-10.41 s each | 23-120 ms each |
-| New CLI process, `cargar productos con IVA` | 10.92 s | 0.75 s |
-| CLI peak resident memory | 61,716 KB | 51,404 KB |
+| Artifact size | 6,465,972 bytes | 20,185,088 bytes |
+| gzip size | 888,055 bytes | 8,695,519 bytes |
+| Full build with fresh doctrees | 34.35 s | 32.74 s |
+| Build peak resident memory | 361,356 KB | 346,740 KB |
+| Rebuild with no source changes | 8.51 s | 14.08 s |
+| Storage write from the same extracted model | 0.69 s | 7.61 s |
+| `Lens.open()` | 96 ms | 26 ms |
+| Five representative queries | 10.19-10.41 s each | 18-106 ms each |
+| New CLI process, `cargar productos con IVA` | 10.92 s | 0.40 s |
+| CLI peak resident memory | 61,716 KB | 51,648 KB |
 
 The five queries covered product VAT, copying user groups, Mercado Libre stock,
 Paraguayan electronic invoices, and importing receipts from a bank statement.
@@ -66,13 +66,15 @@ process did not materialize the complete `entries` table while running these
 normal text searches.
 
 The database is larger because it contains the complete document metadata and
-source hashes, the original entry text, B-tree indexes for navigation, and a
-contentless FTS index. This prototype favors query behavior and inspectability
-over compressed artifact size. The build wrote to a temporary database and
-replaced the final file after closing it; the artifact directory contained no
-journal or WAL sidecars. It does not yet update SQLite incrementally: the Lens
-builder writes every cached doctree and rebuilds the database even when Sphinx
-finds no changed sources.
+source hashes, the original entry text, B-tree indexes for navigation, and two
+contentless FTS indexes. The trigram index preserves the previous substring
+search behavior, but makes the compressed SQLite artifact almost ten times the
+size of compressed JSON. This prototype favors query behavior and
+inspectability over compressed artifact size. The build wrote to a temporary
+database and replaced the final file after closing it; the artifact directory
+contained no journal or WAL sidecars. It does not yet update SQLite
+incrementally: the Lens builder writes every cached doctree and rebuilds the
+database even when Sphinx finds no changed sources.
 
 ## Sphinx Lens: MyST and glossary precision
 
