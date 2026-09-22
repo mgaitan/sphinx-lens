@@ -443,9 +443,12 @@ def test_removed_document_schedules_the_root_document(tmp_path: Path, mocker):
     builder = object.__new__(extractor.LensBuilder)
     builder.outdir = tmp_path
     builder.srcdir = tmp_path
-    builder.env = SimpleNamespace(
-        found_docs={"index"},
-        config=SimpleNamespace(root_doc="index"),
+    builder.env = cast(
+        "BuildEnvironment",
+        SimpleNamespace(
+            found_docs={"index"},
+            config=SimpleNamespace(root_doc="index"),
+        ),
     )
     mocker.patch("sphinx_lens.extractor._build_fingerprint", return_value="fixture")
     mocker.patch("sphinx_lens.extractor._document_hashes", return_value={})
