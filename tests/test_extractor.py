@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -334,8 +335,66 @@ def test_entries_keep_source_order(sphinx_project: Path):
     assert guide_text.index("Connection timeout") < guide_text.index("Retry policy") < guide_text.index("Glossary")
 
 
-def test_incremental_rebuild_keeps_every_link(sphinx_project: Path, tmp_path: Path):
-    """A rebuild after touching one file still writes the whole link graph."""
+def test_incremental_rebuild_replaces_only_changed_document_rows(sphinx_project: Path, tmp_path: Path):
+    """A changed document preserves unrelated rows and matches a clean artifact."""
+    output = tmp_path / "lens"
+    doctrees = tmp_path / "doctrees"
+
+    def run(output_dir: Path = output, doctree_dir: Path = doctrees, *, freshenv: bool = False) -> Lens:
+        app = Sphinx(
+            srcdir=sphinx_project,
+            confdir=sphinx_project,
+            outdir=output_dir,
+            doctreedir=doctree_dir,
+            buildername="lens",
+            freshenv=freshenv,
+        )
+        app.build(force_all=freshenv)
+        return Lens.open(output_dir)
+
+    complete = run()
+    assert complete.index_path is not None
+    original_bytes = complete.index_path.read_bytes()
+    unchanged = run()
+    assert unchanged.index_path is not None
+    assert unchanged.index_path.read_bytes() == original_bytes
+    with sqlite3.connect(complete.index_path) as connection:
+        unchanged_rows = list(
+            connection.execute("SELECT id, ref, text FROM entries WHERE document = 'api' ORDER BY id")
+        )
+        unchanged_fts = list(
+            connection.execute(
+                "SELECT rowid FROM entries_fts WHERE rowid IN (SELECT id FROM entries WHERE document = 'api')"
+            )
+        )
+    guide = sphinx_project / "guide.rst"
+    guide.write_text(f"{guide.read_text(encoding='utf-8')}\nOne more line.\n", encoding="utf-8")
+
+    partial = run()
+    clean = run(tmp_path / "clean", tmp_path / "clean-doctrees", freshenv=True)
+    assert partial.index_path is not None
+
+    with sqlite3.connect(partial.index_path) as connection:
+        assert (
+            list(connection.execute("SELECT id, ref, text FROM entries WHERE document = 'api' ORDER BY id"))
+            == unchanged_rows
+        )
+        assert (
+            list(
+                connection.execute(
+                    "SELECT rowid FROM entries_fts WHERE rowid IN (SELECT id FROM entries WHERE document = 'api')"
+                )
+            )
+            == unchanged_fts
+        )
+    assert partial.entries == clean.entries
+    assert partial.links == clean.links
+    assert partial.locate("One more line")[0].entry.document == "guide"
+    assert partial.read("guide") == clean.read("guide")
+
+
+def test_incremental_rebuild_adds_and_removes_documents(sphinx_project: Path, tmp_path: Path):
+    """Added and removed documents update their rows, anchors, links, and metadata."""
     output = tmp_path / "lens"
     doctrees = tmp_path / "doctrees"
 
@@ -351,14 +410,52 @@ def test_incremental_rebuild_keeps_every_link(sphinx_project: Path, tmp_path: Pa
         app.build(force_all=False)
         return Lens.open(output)
 
-    complete = run()
-    (sphinx_project / "guide.rst").write_text(
-        (sphinx_project / "guide.rst").read_text(encoding="utf-8") + "\nOne more line.\n",
-        encoding="utf-8",
-    )
-    partial = run()
+    original = run()
+    assert original.index_path is not None
+    with sqlite3.connect(original.index_path) as connection:
+        api_rows = list(connection.execute("SELECT id, ref FROM entries WHERE document = 'api' ORDER BY id"))
+    (sphinx_project / "extra.rst").write_text("Extra\n=====\n\nExtra searchable text.\n", encoding="utf-8")
+    index = sphinx_project / "index.rst"
+    index.write_text(f"{index.read_text(encoding='utf-8')}   extra\n", encoding="utf-8")
 
-    assert len(partial.links) == len(complete.links)
+    added = run()
+    assert added.index_path is not None
+
+    assert added.resolve("extra").title == "Extra"
+    assert "extra" in added.documents
+    assert added.locate("searchable text")[0].entry.ref == "extra"
+    with sqlite3.connect(added.index_path) as connection:
+        assert list(connection.execute("SELECT id, ref FROM entries WHERE document = 'api' ORDER BY id")) == api_rows
+
+    (sphinx_project / "extra.rst").unlink()
+    index.write_text(index.read_text(encoding="utf-8").replace("   extra\n", ""), encoding="utf-8")
+
+    removed = run()
+
+    assert "extra" not in removed.documents
+    assert all(entry.document != "extra" for entry in removed.entries)
+    assert all("extra" not in (link.source, link.target) for link in removed.links)
+    assert removed.locate("searchable text") == []
+
+
+def test_removed_document_schedules_the_root_document(tmp_path: Path, mocker):
+    """A removed source still schedules a write phase to remove its index rows."""
+    builder = object.__new__(extractor.LensBuilder)
+    builder.outdir = tmp_path
+    builder.srcdir = tmp_path
+    builder.env = cast(
+        "BuildEnvironment",
+        SimpleNamespace(
+            found_docs={"index"},
+            config=SimpleNamespace(root_doc="index"),
+        ),
+    )
+    mocker.patch("sphinx_lens.extractor._build_fingerprint", return_value="fixture")
+    mocker.patch("sphinx_lens.extractor._document_hashes", return_value={})
+    mocker.patch.object(Lens, "supports_incremental", return_value=True)
+    mocker.patch.object(Lens, "changed_document_names", return_value={"removed"})
+
+    assert builder.get_outdated_docs() == {"index"}
 
 
 def test_source_is_recorded_only_when_it_stays_relative(sphinx_project: Path, tmp_path: Path):
