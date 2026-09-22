@@ -41,6 +41,21 @@ Lens also accepts `lens_no_search`, a list of source-file globs for generated
 pages that should remain available through navigation without contributing to
 `locate` results.
 
+### Incremental builds
+
+After its first SQLite build, Lens records each document's source hash together
+with the anchors and link sources that document owns. A later Sphinx build
+copies the complete artifact, replaces the changed document scopes and their FTS
+rows in one transaction, updates changed domain objects, and reclassifies local
+links against the current anchor set. The copy replaces the published artifact
+only after SQLite closes it, so an interrupted update leaves the previous index
+available.
+
+Lens rebuilds the complete artifact when the SQLite schema or Lens-relevant
+Sphinx settings change. This includes the Sphinx version, enabled extensions,
+language, and `lens_no_search`. A clean rebuild also remains the fallback for
+any build where Sphinx reports every document as needing output.
+
 ## The model
 
 Three kinds of entry, arranged in a hierarchy, connected by a directed graph.

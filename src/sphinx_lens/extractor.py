@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import posixpath
 import subprocess
+import warnings
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -26,6 +28,7 @@ from sphinx_lens.lens import (
     DEFAULT_INDEX,
     INDEX_FILENAME,
     LEGACY_JSON_FILENAME,
+    Anchor,
     DocumentInfo,
     Entry,
     IndexMetadata,
@@ -79,16 +82,20 @@ class LensBuilder(DummyBuilder):
         self._anchors = AnchorIndex()
         self._known_locations: set[str] = set()
         self._no_search: set[str] = set()
+        self._document_entries: list[Entry] = []
+        self._object_entries: list[Entry] = []
+        self._changed_documents: set[str] = set()
+        self._incremental = False
+        self._skip_write = False
         # Run after resolvers such as intersphinx, so only genuine failures arrive.
         self.events.connect("missing-reference", self._record_missing_reference, priority=1000)
 
     def get_outdated_docs(self) -> set[str]:
-        """Write every document on every build.
-
-        Links are collected in {py:meth}`write_doc`, so a partial write phase
-        would produce an index whose entries are complete but whose link graph
-        silently covers only the documents Sphinx happened to rebuild.
-        """
+        """Keep Sphinx's changed-document set unless the artifact needs a clean rebuild."""
+        outdated = set(super().get_outdated_docs())
+        index_path = Path(self.outdir) / INDEX_FILENAME
+        if Lens.supports_incremental(index_path, _build_fingerprint(self.env)):
+            return outdated
         return self.env.found_docs
 
     def get_target_uri(self, docname: str, typ: str | None = None) -> str:
@@ -96,10 +103,45 @@ class LensBuilder(DummyBuilder):
         return docname
 
     def prepare_writing(self, docnames: AbstractSet[str]) -> None:
-        """Read each doctree once, for entries and for the toctree edges."""
-        self._entries, self._anchors, self._links = _extract_entries(self.env)
-        self._known_locations = {entry.location for entry in self._entries}
+        """Extract changed scopes, or the complete model when no prior artifact is compatible."""
         self._no_search = _no_search_documents(self.env)
+        index_path = Path(self.outdir) / INDEX_FILENAME
+        fingerprint = _build_fingerprint(self.env)
+        if not Lens.supports_incremental(index_path, fingerprint):
+            self._entries, self._anchors, self._links = _extract_entries(self.env)
+            self._known_locations = {entry.location for entry in self._entries}
+            return
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            previous = Lens.open(index_path)
+        self._changed_documents = set(docnames) | _changed_documents(previous, self.env, Path(self.srcdir))
+        self._links = [link for link in self._links if link.source.partition("#")[0] in self._changed_documents]
+        if not self._changed_documents:
+            self._skip_write = True
+            return
+        self._incremental = True
+        persisted_anchors = Lens.load_anchors(index_path)
+        self._anchors = _anchor_index(persisted_anchors, self._changed_documents)
+        for docname in sorted(self._changed_documents & self.env.found_docs):
+            doctree = self.env.get_doctree(docname)
+            self._document_entries.extend(_document_entries(self.env, docname, doctree, self._anchors))
+        previous_entries = [
+            entry
+            for entry in previous.entries
+            if entry.document not in self._changed_documents and entry.kind != "object"
+        ]
+        self._known_locations = {entry.location for entry in [*previous_entries, *self._document_entries]}
+        for docname in sorted(self._changed_documents & self.env.found_docs):
+            self._links.extend(
+                _toctree_links(docname, self.env.get_doctree(docname), self._anchors, self._known_locations)
+            )
+        domain_objects = [
+            (domain_name, name, display_name, object_type, docname, anchor, priority)
+            for domain_name, domain in sorted(self.env.domains.items())
+            for name, display_name, object_type, docname, anchor, priority in domain.get_objects()
+        ]
+        self._object_entries = _nest_objects(list(_domain_entries(domain_objects, self._anchors)))
 
     def write_doc(self, docname: str, doctree: nodes.document) -> None:
         """Collect the references Sphinx resolved while writing this doctree."""
@@ -125,19 +167,50 @@ class LensBuilder(DummyBuilder):
         )
 
     def finish(self) -> None:
-        """Extract the completed environment into the builder output directory."""
-        self._entries.sort(key=lambda entry: (entry.document, entry.location, entry.kind, entry.ref))
-        links = sorted(set(self._links), key=lambda link: (link.source, link.target, link.label))
-        lens = Lens(
-            source=_relative_source(Path(self.srcdir), Path(self.outdir)),
-            entries=self._entries,
-            links=links,
-            metadata=_index_metadata(self.env, Path(self.srcdir)),
-            no_search=self._no_search,
-            documents=_document_records(self.env),
-        )
-        index_path = lens.write(Path(self.outdir) / INDEX_FILENAME)
-        (Path(self.outdir) / LEGACY_JSON_FILENAME).unlink(missing_ok=True)
+        """Publish a complete replacement artifact after a full or scoped update."""
+        if self._skip_write:
+            logger.info("Lens index is up to date")
+            return
+        source = Path(self.srcdir)
+        output = Path(self.outdir)
+        metadata = _index_metadata(self.env, source)
+        document_hashes = _document_hashes(self.env, source)
+        documents = _document_records(self.env)
+        if self._incremental:
+            entries = [*self._document_entries, *self._object_entries]
+            lens = Lens(
+                source=_relative_source(source, output),
+                entries=entries,
+                links=self._links,
+                metadata=metadata,
+                no_search=self._no_search,
+                documents=documents,
+                document_hashes=document_hashes,
+                anchors=_anchor_records(self._anchors),
+            )
+            index_path = lens.write_incremental(
+                output / INDEX_FILENAME,
+                changed_documents=self._changed_documents,
+                document_entries=self._document_entries,
+                objects=self._object_entries,
+                links=self._links,
+                known_locations=self._known_locations,
+            )
+        else:
+            self._entries.sort(key=lambda entry: (entry.document, entry.location, entry.kind, entry.ref))
+            links = sorted(set(self._links), key=lambda link: (link.source, link.target, link.label))
+            lens = Lens(
+                source=_relative_source(source, output),
+                entries=self._entries,
+                links=links,
+                metadata=metadata,
+                no_search=self._no_search,
+                documents=documents,
+                document_hashes=document_hashes,
+                anchors=_anchor_records(self._anchors),
+            )
+            index_path = lens.write(output / INDEX_FILENAME)
+        (output / LEGACY_JSON_FILENAME).unlink(missing_ok=True)
         logger.info("wrote Lens index to %s", index_path)
 
 
@@ -230,10 +303,64 @@ def _document_records(environment: BuildEnvironment) -> dict[str, DocumentInfo]:
     }
 
 
+def _document_hashes(environment: BuildEnvironment, source: Path) -> dict[str, str]:
+    """Return each current document's source hash by Sphinx document name."""
+    return {
+        docname: sha256(Path(source_path).read_bytes()).hexdigest()
+        for docname in sorted(environment.found_docs)
+        if (source_path := environment.doc2path(docname, base=True))
+    }
+
+
+def _build_fingerprint(environment: BuildEnvironment) -> str:
+    """Hash Lens settings whose changes require a complete extracted model."""
+    settings = {
+        "extensions": list(environment.config.extensions),
+        "language": str(environment.config.language),
+        "lens_no_search": list(environment.config.lens_no_search),
+        "sphinx_version": sphinx_version,
+    }
+    return sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
+
+
+def _changed_documents(previous: Lens, environment: BuildEnvironment, source: Path) -> set[str]:
+    """Return added, removed, and source-modified documents since the prior artifact."""
+    current_hashes = _document_hashes(environment, source)
+    return {
+        docname
+        for docname in set(previous.document_hashes) | set(current_hashes)
+        if previous.document_hashes.get(docname) != current_hashes.get(docname)
+    }
+
+
+def _anchor_index(anchors: list[Anchor], changed_documents: set[str]) -> AnchorIndex:
+    """Restore unchanged anchors so changed doctrees resolve against the full corpus."""
+    unchanged = [anchor for anchor in anchors if anchor.document not in changed_documents]
+    return AnchorIndex(
+        parents={(anchor.document, anchor.anchor): anchor.parent for anchor in unchanged},
+        texts={(anchor.document, anchor.anchor): anchor.text for anchor in unchanged},
+        order={(anchor.document, anchor.anchor): anchor.order for anchor in unchanged},
+    )
+
+
+def _anchor_records(anchors: AnchorIndex) -> list[Anchor]:
+    """Persist every extracted anchor with the document scope that owns it."""
+    return [
+        Anchor(
+            document=docname,
+            anchor=anchor,
+            parent=anchors.parents.get((docname, anchor), docname),
+            text=anchors.texts.get((docname, anchor), ""),
+            order=order,
+        )
+        for (docname, anchor), order in sorted(anchors.order.items())
+    ]
+
+
 def _index_metadata(environment: BuildEnvironment, source: Path) -> IndexMetadata:
     documents = {
-        Path(source_path).relative_to(source).as_posix(): sha256(Path(source_path).read_bytes()).hexdigest()
-        for docname in sorted(environment.found_docs)
+        Path(source_path).relative_to(source).as_posix(): source_hash
+        for docname, source_hash in _document_hashes(environment, source).items()
         if (source_path := environment.doc2path(docname, base=True))
     }
     return IndexMetadata(
@@ -243,6 +370,7 @@ def _index_metadata(environment: BuildEnvironment, source: Path) -> IndexMetadat
         git_commit=_git_commit(source),
         documents=documents,
         language=str(environment.config.language),
+        build_fingerprint=_build_fingerprint(environment),
     )
 
 

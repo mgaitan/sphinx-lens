@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sphinx_lens import IndexMetadata, Lens, LensError, StaleIndexWarning, discover_source
-from sphinx_lens.lens import DocumentInfo, Entry, Link, TargetNotFoundError, _search_language, _term_coverage
+from sphinx_lens.lens import Anchor, DocumentInfo, Entry, Link, TargetNotFoundError, _search_language, _term_coverage
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -160,6 +160,27 @@ def test_failed_write_keeps_previous_artifact(lens: Lens, tmp_path: Path, mocker
         lens.write(path)
 
     assert path.read_bytes() == original
+
+
+def test_failed_incremental_write_keeps_previous_artifact(lens: Lens, tmp_path: Path, mocker):
+    """An interrupted scoped update leaves its prior complete artifact readable."""
+    lens.anchors = [Anchor(document="guide", anchor="timeouts", parent="guide", text="Timeouts", order=1)]
+    path = lens.write(tmp_path / "index.sqlite")
+    original = path.read_bytes()
+    mocker.patch.object(lens, "_update_database", side_effect=RuntimeError("interrupted"))
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        lens.write_incremental(
+            path,
+            changed_documents={"guide"},
+            document_entries=[],
+            objects=[],
+            links=[],
+            known_locations={"guide"},
+        )
+
+    assert path.read_bytes() == original
+    assert Lens.open(path).resolve("guide").title == "Guide"
 
 
 def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):

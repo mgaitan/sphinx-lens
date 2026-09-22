@@ -17,6 +17,7 @@ from difflib import SequenceMatcher
 from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
+from shutil import copyfile
 from typing import TYPE_CHECKING, Any, Self, cast
 
 from sphinx.search import SearchLanguage
@@ -25,7 +26,7 @@ from sphinx.search import languages as sphinx_languages
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-INDEX_VERSION = 5
+INDEX_VERSION = 6
 INDEX_FILENAME = "index.sqlite"
 DEFAULT_INDEX = Path("_build/lens") / INDEX_FILENAME
 LEGACY_INDEX = Path(".sphinx-lens") / INDEX_FILENAME
@@ -34,7 +35,7 @@ FTS5_TRIGRAM_SIZE = 3
 
 _ENTRY_COLUMNS = "ref, kind, title, text, document, anchor, source_order, parent, domain, object_type, name"
 _QUALIFIED_ENTRY_COLUMNS = ", ".join(f"entries.{column.strip()}" for column in _ENTRY_COLUMNS.split(","))
-_SELECT_ALL_ENTRIES = f"SELECT {_ENTRY_COLUMNS} FROM entries ORDER BY id"  # noqa: S608
+_SELECT_ALL_ENTRIES = f"SELECT {_ENTRY_COLUMNS} FROM entries ORDER BY document, anchor, kind, ref"  # noqa: S608
 _SELECT_OBJECT_IDENTITY = (
     f"SELECT {_ENTRY_COLUMNS} FROM entries "  # noqa: S608
     "WHERE kind = 'object' AND domain = ? AND object_type = ? AND name = ?"
@@ -69,13 +70,24 @@ CREATE TABLE artifact (
     git_commit TEXT,
     language TEXT NOT NULL,
     no_search TEXT NOT NULL,
-    source_documents TEXT NOT NULL
+    source_documents TEXT NOT NULL,
+    build_fingerprint TEXT NOT NULL
 );
 CREATE TABLE documents (
     name TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    metadata TEXT NOT NULL
+    metadata TEXT NOT NULL,
+    source_hash TEXT NOT NULL
 ) WITHOUT ROWID;
+CREATE TABLE anchors (
+    document TEXT NOT NULL,
+    anchor TEXT NOT NULL,
+    parent TEXT NOT NULL,
+    text TEXT NOT NULL,
+    source_order INTEGER NOT NULL,
+    PRIMARY KEY (document, anchor)
+) WITHOUT ROWID;
+CREATE INDEX anchors_document_order ON anchors(document, source_order);
 CREATE TABLE entries (
     id INTEGER PRIMARY KEY,
     ref TEXT NOT NULL UNIQUE,
@@ -101,11 +113,13 @@ CREATE INDEX entries_object_identity ON entries(domain, object_type, name) WHERE
 CREATE INDEX entries_kind_domain ON entries(kind, domain);
 CREATE TABLE links (
     source TEXT NOT NULL,
+    source_document TEXT NOT NULL,
     target TEXT NOT NULL,
     label TEXT NOT NULL,
     kind TEXT NOT NULL
 );
 CREATE INDEX links_source ON links(source);
+CREATE INDEX links_source_document ON links(source_document);
 CREATE INDEX links_target ON links(target);
 CREATE VIRTUAL TABLE entries_fts USING fts5(
     searchable,
@@ -292,6 +306,18 @@ class IndexMetadata:
     git_commit: str | None = None
     documents: dict[str, str] = field(default_factory=dict)
     language: str = ""
+    build_fingerprint: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Anchor:
+    """Record a document-local anchor needed to resolve and classify links."""
+
+    document: str
+    anchor: str
+    parent: str
+    text: str
+    order: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +365,11 @@ class Link:
     kind: str
 
 
+def _link_document(source: str) -> str:
+    """Return the document that owns a link source location."""
+    return source.partition("#")[0]
+
+
 @dataclass(frozen=True, slots=True)
 class SearchResult:
     """A ranked text match in the index."""
@@ -369,6 +400,8 @@ class Lens:
         index_path: Path | None = None,
         no_search: set[str] | frozenset[str] = frozenset(),
         documents: dict[str, DocumentInfo] | None = None,
+        document_hashes: dict[str, str] | None = None,
+        anchors: list[Anchor] | None = None,
         _database_path: Path | None = None,
     ) -> None:
         """Create a Lens from already extracted entries and links."""
@@ -380,6 +413,8 @@ class Lens:
         self.index_path = index_path
         self.no_search = frozenset(no_search)
         self.documents = documents or {}
+        self.document_hashes = document_hashes or {}
+        self.anchors = anchors or []
         self.warning_count = 0
         self._by_ref = {entry.ref: entry for entry in entries}
 
@@ -396,7 +431,9 @@ class Lens:
         """Return every link, loading the complete table only when requested."""
         if self._links is None:
             with self._connect() as connection:
-                rows = connection.execute("SELECT source, target, label, kind FROM links ORDER BY rowid")
+                rows = connection.execute(
+                    "SELECT source, target, label, kind FROM links ORDER BY source, target, label, kind"
+                )
                 self._links = tuple(Link(*row) for row in rows)
         return self._links
 
@@ -454,6 +491,9 @@ class Lens:
                 row["name"]: DocumentInfo(title=row["title"], metadata=json.loads(row["metadata"]))
                 for row in document_rows
             }
+            document_hashes = {
+                row["name"]: row["source_hash"] for row in connection.execute("SELECT name, source_hash FROM documents")
+            }
         except sqlite3.DatabaseError as error:
             msg = f"Invalid Lens SQLite index: {index_path}: {error}"
             raise LensError(msg) from error
@@ -470,10 +510,12 @@ class Lens:
                 git_commit=artifact["git_commit"],
                 documents=json.loads(artifact["source_documents"]),
                 language=artifact["language"],
+                build_fingerprint=artifact["build_fingerprint"],
             ),
             index_path=index_path,
             no_search=json.loads(artifact["no_search"]),
             documents=documents,
+            document_hashes=document_hashes,
             _database_path=index_path,
         )
         lens._warn_if_stale()
@@ -505,6 +547,250 @@ class Lens:
         return index_path
 
     @staticmethod
+    def supports_incremental(path: Path, fingerprint: str) -> bool:
+        """Return whether ``path`` can accept a document-scoped update."""
+        if not path.is_file():
+            return False
+        try:
+            with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+                row = connection.execute("SELECT schema_version, build_fingerprint FROM artifact").fetchone()
+        except sqlite3.DatabaseError:
+            return False
+        return row == (INDEX_VERSION, fingerprint)
+
+    @staticmethod
+    def load_anchors(path: Path) -> list[Anchor]:
+        """Load persisted anchors from a compatible artifact."""
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+            rows = connection.execute(
+                "SELECT document, anchor, parent, text, source_order FROM anchors ORDER BY document, source_order"
+            )
+            return [Anchor(row[0], row[1], row[2], row[3], row[4]) for row in rows]
+
+    def write_incremental(  # noqa: PLR0913
+        self,
+        path: str | Path,
+        *,
+        changed_documents: set[str],
+        document_entries: list[Entry],
+        objects: list[Entry],
+        links: list[Link],
+        known_locations: set[str],
+    ) -> Path:
+        """Atomically replace ``path`` after updating only changed document-owned rows."""
+        index_path = Path(path).resolve()
+        if not self.supports_incremental(index_path, self.metadata.build_fingerprint):
+            msg = f"Cannot incrementally update incompatible Lens index: {index_path}"
+            raise LensError(msg)
+        existing_mode = stat.S_IMODE(index_path.stat().st_mode)
+        while True:
+            temporary_path = index_path.with_name(f".{index_path.name}.{secrets.token_hex(8)}.tmp")
+            try:
+                handle = os.open(temporary_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+            except FileExistsError:
+                continue
+            os.close(handle)
+            break
+        try:
+            copyfile(index_path, temporary_path)
+            self._update_database(
+                temporary_path,
+                changed_documents=changed_documents,
+                document_entries=document_entries,
+                objects=objects,
+                links=links,
+                known_locations=known_locations,
+            )
+            temporary_path.chmod(existing_mode)
+            temporary_path.replace(index_path)
+        except BaseException:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        self.index_path = index_path
+        self._database_path = index_path
+        return index_path
+
+    def _update_database(  # noqa: PLR0913
+        self,
+        path: Path,
+        *,
+        changed_documents: set[str],
+        document_entries: list[Entry],
+        objects: list[Entry],
+        links: list[Link],
+        known_locations: set[str],
+    ) -> None:
+        language = _search_language(self.metadata.language)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.row_factory = sqlite3.Row
+            for document in changed_documents:
+                self._delete_document_entries(connection, document, language)
+                connection.execute("DELETE FROM documents WHERE name = ?", (document,))
+                connection.execute("DELETE FROM anchors WHERE document = ?", (document,))
+            connection.executemany(
+                "INSERT INTO documents(name, title, metadata, source_hash) VALUES (?, ?, ?, ?)",
+                (
+                    (name, record.title, _storage_json(record.metadata), self.document_hashes.get(name, ""))
+                    for name, record in self.documents.items()
+                    if name in changed_documents
+                ),
+            )
+            connection.executemany(
+                "INSERT INTO anchors(document, anchor, parent, text, source_order) VALUES (?, ?, ?, ?, ?)",
+                (
+                    (anchor.document, anchor.anchor, anchor.parent, anchor.text, anchor.order)
+                    for anchor in self.anchors
+                    if anchor.document in changed_documents
+                ),
+            )
+            for entry in document_entries:
+                self._insert_entry(connection, entry, language)
+            self._replace_objects(connection, objects, language)
+            connection.executemany(
+                "DELETE FROM links WHERE source_document = ?",
+                ((document,) for document in changed_documents),
+            )
+            connection.executemany(
+                "INSERT INTO links(source, source_document, target, label, kind) VALUES (?, ?, ?, ?, ?)",
+                (
+                    (link.source, _link_document(link.source), link.target, link.label, link.kind)
+                    for link in sorted(set(links), key=lambda link: (link.source, link.target, link.label, link.kind))
+                ),
+            )
+            valid_targets = known_locations | {f"{anchor.document}#{anchor.anchor}" for anchor in self.anchors}
+            for row in connection.execute("SELECT rowid, target, kind FROM links WHERE kind != 'external'"):
+                kind = "internal" if row["target"] in valid_targets else "unresolved"
+                if kind != row["kind"]:
+                    connection.execute("UPDATE links SET kind = ? WHERE rowid = ?", (kind, row["rowid"]))
+            connection.execute(
+                """UPDATE artifact SET source = ?, sphinx_version = ?, extensions = ?, built_at = ?, git_commit = ?,
+                language = ?, no_search = ?, source_documents = ?, build_fingerprint = ?""",
+                (
+                    self.source,
+                    self.metadata.sphinx_version,
+                    _storage_json(self.metadata.extensions),
+                    self.metadata.built_at,
+                    self.metadata.git_commit,
+                    self.metadata.language,
+                    _storage_json(sorted(self.no_search)),
+                    _storage_json(self.metadata.documents),
+                    self.metadata.build_fingerprint,
+                ),
+            )
+            connection.execute("INSERT INTO entries_fts(entries_fts) VALUES ('optimize')")
+            connection.execute("INSERT INTO entries_trigram(entries_trigram) VALUES ('optimize')")
+            connection.execute("PRAGMA journal_mode = DELETE")
+            connection.execute("PRAGMA optimize")
+
+    def _delete_document_entries(
+        self, connection: sqlite3.Connection, document: str, language: SearchLanguage | None
+    ) -> None:
+        rows = connection.execute("SELECT id, * FROM entries WHERE document = ? AND kind != 'object'", (document,))
+        for row in rows:
+            self._delete_fts_entry(connection, row, language)
+        connection.execute("DELETE FROM entries WHERE document = ? AND kind != 'object'", (document,))
+
+    def _replace_objects(
+        self, connection: sqlite3.Connection, objects: list[Entry], language: SearchLanguage | None
+    ) -> None:
+        existing = {row["ref"]: row for row in connection.execute("SELECT id, * FROM entries WHERE kind = 'object'")}
+        current = {entry.ref: entry for entry in objects}
+        for ref, row in existing.items():
+            if ref not in current:
+                self._delete_fts_entry(connection, row, language)
+                connection.execute("DELETE FROM entries WHERE id = ?", (row["id"],))
+        for ref, entry in current.items():
+            row = existing.get(ref)
+            values = self._entry_values(entry, self.no_search)
+            if row is None:
+                self._insert_entry(connection, entry, language)
+            elif values != self._stored_entry_values(row):
+                self._delete_fts_entry(connection, row, language)
+                connection.execute(
+                    """UPDATE entries SET kind = ?, title = ?, text = ?, document = ?, anchor = ?, source_order = ?,
+                    parent = ?, domain = ?, object_type = ?, name = ?, normalized_ref = ?, normalized_title = ?,
+                    normalized_name = ?, searchable = ? WHERE id = ?""",
+                    (*values[1:], row["id"]),
+                )
+                self._insert_fts_entry(connection, row["id"], entry, language)
+
+    @staticmethod
+    def _entry_values(entry: Entry, no_search: set[str] | frozenset[str] = frozenset()) -> tuple[object, ...]:
+        return (
+            entry.ref,
+            entry.kind,
+            entry.title,
+            entry.text,
+            entry.document,
+            entry.anchor,
+            entry.order,
+            entry.parent,
+            entry.domain,
+            entry.object_type,
+            entry.name,
+            _fold_text(entry.ref),
+            _fold_text(entry.title),
+            _fold_text(entry.name or ""),
+            entry.document not in no_search,
+        )
+
+    def _stored_entry_values(self, row: sqlite3.Row) -> tuple[object, ...]:
+        return (
+            row["ref"],
+            row["kind"],
+            row["title"],
+            row["text"],
+            row["document"],
+            row["anchor"],
+            row["source_order"],
+            row["parent"],
+            row["domain"],
+            row["object_type"],
+            row["name"],
+            row["normalized_ref"],
+            row["normalized_title"],
+            row["normalized_name"],
+            bool(row["searchable"]),
+        )
+
+    def _insert_entry(self, connection: sqlite3.Connection, entry: Entry, language: SearchLanguage | None) -> None:
+        cursor = connection.execute(
+            """INSERT INTO entries(
+                ref, kind, title, text, document, anchor, source_order, parent, domain, object_type, name,
+                normalized_ref, normalized_title, normalized_name, searchable
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            self._entry_values(entry, self.no_search),
+        )
+        self._insert_fts_entry(connection, cast("int", cursor.lastrowid), entry, language)
+
+    def _insert_fts_entry(
+        self, connection: sqlite3.Connection, entry_id: int, entry: Entry, language: SearchLanguage | None
+    ) -> None:
+        if entry.document not in self.no_search:
+            connection.execute(
+                "INSERT INTO entries_fts(rowid, searchable) VALUES (?, ?)",
+                (entry_id, _entry_search_text(entry, language)),
+            )
+            connection.execute(
+                "INSERT INTO entries_trigram(rowid, searchable) VALUES (?, ?)", (entry_id, _entry_folded_text(entry))
+            )
+
+    def _delete_fts_entry(
+        self, connection: sqlite3.Connection, row: sqlite3.Row, language: SearchLanguage | None
+    ) -> None:
+        if not row["searchable"]:
+            return
+        entry = self._entry_from_row(row)
+        connection.execute(
+            "INSERT INTO entries_fts(entries_fts, rowid, searchable) VALUES ('delete', ?, ?)",
+            (row["id"], _entry_search_text(entry, language)),
+        )
+        connection.execute(
+            "INSERT INTO entries_trigram(entries_trigram, rowid, searchable) VALUES ('delete', ?, ?)",
+            (row["id"], _entry_folded_text(entry)),
+        )
+
+    @staticmethod
     def _raise_legacy_json(path: Path) -> None:
         msg = f"JSON Lens indexes are no longer supported: {path}; rebuild the index to create {INDEX_FILENAME}"
         raise LensError(msg)
@@ -514,7 +800,7 @@ class Lens:
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.executescript(_SCHEMA)
             connection.execute(
-                "INSERT INTO artifact VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO artifact VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     INDEX_VERSION,
                     self.source,
@@ -525,14 +811,19 @@ class Lens:
                     self.metadata.language,
                     _storage_json(sorted(self.no_search)),
                     _storage_json(self.metadata.documents),
+                    self.metadata.build_fingerprint,
                 ),
             )
             connection.executemany(
-                "INSERT INTO documents(name, title, metadata) VALUES (?, ?, ?)",
+                "INSERT INTO documents(name, title, metadata, source_hash) VALUES (?, ?, ?, ?)",
                 (
-                    (name, document.title, _storage_json(document.metadata))
+                    (name, document.title, _storage_json(document.metadata), self.document_hashes.get(name, ""))
                     for name, document in sorted(self.documents.items())
                 ),
+            )
+            connection.executemany(
+                "INSERT INTO anchors(document, anchor, parent, text, source_order) VALUES (?, ?, ?, ?, ?)",
+                ((anchor.document, anchor.anchor, anchor.parent, anchor.text, anchor.order) for anchor in self.anchors),
             )
             connection.executemany(
                 """INSERT INTO entries(
@@ -577,8 +868,8 @@ class Lens:
                 ),
             )
             connection.executemany(
-                "INSERT INTO links(source, target, label, kind) VALUES (?, ?, ?, ?)",
-                ((link.source, link.target, link.label, link.kind) for link in self.links),
+                "INSERT INTO links(source, source_document, target, label, kind) VALUES (?, ?, ?, ?, ?)",
+                ((link.source, _link_document(link.source), link.target, link.label, link.kind) for link in self.links),
             )
             connection.execute("INSERT INTO entries_fts(entries_fts) VALUES ('optimize')")
             connection.execute("INSERT INTO entries_trigram(entries_trigram) VALUES ('optimize')")
@@ -844,7 +1135,7 @@ class Lens:
             with self._connect() as connection:
                 rows = connection.execute(
                     f"SELECT source, target, label, kind FROM links "  # noqa: S608
-                    f"WHERE source IN ({placeholders}) ORDER BY rowid",
+                    f"WHERE source IN ({placeholders}) ORDER BY source, target, label, kind",
                     tuple(locations),
                 )
                 return tuple(Link(*row) for row in rows)
@@ -857,7 +1148,8 @@ class Lens:
         if self._database_path is not None:
             with self._connect() as connection:
                 rows = connection.execute(
-                    "SELECT source, target, label, kind FROM links WHERE target = ? ORDER BY rowid",
+                    "SELECT source, target, label, kind FROM links "
+                    "WHERE target = ? ORDER BY source, target, label, kind",
                     (entry.location,),
                 )
                 return LinkSet(incoming=tuple(Link(*row) for row in rows), outgoing=outgoing)
