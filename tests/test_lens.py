@@ -167,6 +167,8 @@ def test_failed_incremental_write_keeps_previous_artifact(lens: Lens, tmp_path: 
     lens.anchors = [Anchor(document="guide", anchor="timeouts", parent="guide", text="Timeouts", order=1)]
     path = lens.write(tmp_path / "index.sqlite")
     original = path.read_bytes()
+    (tmp_path / ".index.sqlite.collision.tmp").touch()
+    mocker.patch("sphinx_lens.lens.secrets.token_hex", side_effect=["collision", "available"])
     mocker.patch.object(lens, "_update_database", side_effect=RuntimeError("interrupted"))
 
     with pytest.raises(RuntimeError, match="interrupted"):
@@ -181,6 +183,89 @@ def test_failed_incremental_write_keeps_previous_artifact(lens: Lens, tmp_path: 
 
     assert path.read_bytes() == original
     assert Lens.open(path).resolve("guide").title == "Guide"
+
+
+def test_incremental_write_rejects_incompatible_artifacts(lens: Lens, tmp_path: Path):
+    """Scoped updates reject corrupt and differently configured artifacts."""
+    corrupt = tmp_path / "corrupt.sqlite"
+    corrupt.write_text("not a database", encoding="utf-8")
+    assert not Lens.supports_incremental(corrupt, "fixture")
+
+    path = lens.write(tmp_path / "index.sqlite")
+    lens.metadata = IndexMetadata(build_fingerprint="changed")
+    with pytest.raises(LensError, match="incompatible"):
+        lens.write_incremental(
+            path,
+            changed_documents=set(),
+            document_entries=[],
+            objects=[],
+            links=[],
+            known_locations=set(),
+        )
+
+
+def test_incremental_write_updates_objects_and_reclassifies_links(lens: Lens, tmp_path: Path):
+    """Scoped writes delete, insert, update, and reclassify owned index data."""
+    path = lens.write(tmp_path / "index.sqlite")
+    object_entry = lens.resolve("demo.Client")
+
+    lens.write_incremental(
+        path,
+        changed_documents=set(),
+        document_entries=[],
+        objects=[],
+        links=[],
+        known_locations=set(),
+    )
+    assert Lens.open(path).links[0].kind == "unresolved"
+
+    lens.write_incremental(
+        path,
+        changed_documents=set(),
+        document_entries=[],
+        objects=[object_entry],
+        links=[],
+        known_locations=set(),
+    )
+    updated_object = Entry(
+        ref=object_entry.ref,
+        kind=object_entry.kind,
+        title="Updated client",
+        text=object_entry.text,
+        document=object_entry.document,
+        anchor=object_entry.anchor,
+        order=object_entry.order,
+        parent=object_entry.parent,
+        domain=object_entry.domain,
+        object_type=object_entry.object_type,
+        name=object_entry.name,
+    )
+    lens.write_incremental(
+        path,
+        changed_documents=set(),
+        document_entries=[],
+        objects=[updated_object],
+        links=[],
+        known_locations=set(),
+    )
+    assert Lens.open(path).resolve("demo.Client").title == "Updated client"
+
+    hidden = Lens(
+        source=".",
+        entries=[object_entry],
+        links=[],
+        no_search={"api"},
+        documents={"api": DocumentInfo(title="API")},
+    )
+    hidden_path = hidden.write(tmp_path / "hidden.sqlite")
+    hidden.write_incremental(
+        hidden_path,
+        changed_documents=set(),
+        document_entries=[],
+        objects=[updated_object],
+        links=[],
+        known_locations=set(),
+    )
 
 
 def test_discovery_finds_a_sphinx_project(lens: Lens, tmp_path: Path):

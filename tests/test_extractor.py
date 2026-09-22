@@ -438,6 +438,23 @@ def test_incremental_rebuild_adds_and_removes_documents(sphinx_project: Path, tm
     assert removed.locate("searchable text") == []
 
 
+def test_removed_document_schedules_the_root_document(tmp_path: Path, mocker):
+    """A removed source still schedules a write phase to remove its index rows."""
+    builder = object.__new__(extractor.LensBuilder)
+    builder.outdir = tmp_path
+    builder.srcdir = tmp_path
+    builder.env = SimpleNamespace(
+        found_docs={"index"},
+        config=SimpleNamespace(root_doc="index"),
+    )
+    mocker.patch("sphinx_lens.extractor._build_fingerprint", return_value="fixture")
+    mocker.patch("sphinx_lens.extractor._document_hashes", return_value={})
+    mocker.patch.object(Lens, "supports_incremental", return_value=True)
+    mocker.patch.object(Lens, "changed_document_names", return_value={"removed"})
+
+    assert builder.get_outdated_docs() == {"index"}
+
+
 def test_source_is_recorded_only_when_it_stays_relative(sphinx_project: Path, tmp_path: Path):
     """An artifact outside the source tree records no source path at all."""
     inside = build(sphinx_project)
