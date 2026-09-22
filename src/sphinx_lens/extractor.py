@@ -311,7 +311,7 @@ def _document_hashes(environment: BuildEnvironment, source: Path) -> dict[str, s
     return {
         docname: sha256(Path(source_path).read_bytes()).hexdigest()
         for docname in sorted(environment.found_docs)
-        if (source_path := environment.doc2path(docname, base=True))
+        if (source_path := environment.doc2path(docname, base=True)) and Path(source_path).is_file()
     }
 
 
