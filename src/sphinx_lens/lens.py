@@ -370,6 +370,11 @@ def _link_document(source: str) -> str:
     return source.partition("#")[0]
 
 
+def _entry_order(entry: Entry) -> tuple[str, str, str, str]:
+    """Return the canonical order used by in-memory and persisted entries."""
+    return (entry.document, entry.anchor, entry.kind, entry.ref)
+
+
 @dataclass(frozen=True, slots=True)
 class SearchResult:
     """A ranked text match in the index."""
@@ -406,7 +411,9 @@ class Lens:
     ) -> None:
         """Create a Lens from already extracted entries and links."""
         self.source = source
-        self._entries: tuple[Entry, ...] | None = tuple(entries) if _database_path is None else None
+        self._entries: tuple[Entry, ...] | None = (
+            tuple(sorted(entries, key=_entry_order)) if _database_path is None else None
+        )
         self._links: tuple[Link, ...] | None = tuple(links) if _database_path is None else None
         self._database_path = _database_path
         self.metadata = metadata or IndexMetadata()
@@ -557,6 +564,17 @@ class Lens:
         except sqlite3.DatabaseError:
             return False
         return row == (INDEX_VERSION, fingerprint)
+
+    @staticmethod
+    def changed_document_names(path: Path, current_hashes: dict[str, str]) -> set[str]:
+        """Return document names whose recorded source hash no longer matches."""
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as connection:
+            previous_hashes = dict(connection.execute("SELECT name, source_hash FROM documents"))
+        return {
+            document
+            for document in set(previous_hashes) | set(current_hashes)
+            if previous_hashes.get(document) != current_hashes.get(document)
+        }
 
     @staticmethod
     def load_anchors(path: Path) -> list[Anchor]:

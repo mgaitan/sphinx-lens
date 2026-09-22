@@ -91,12 +91,15 @@ class LensBuilder(DummyBuilder):
         self.events.connect("missing-reference", self._record_missing_reference, priority=1000)
 
     def get_outdated_docs(self) -> set[str]:
-        """Keep Sphinx's changed-document set unless the artifact needs a clean rebuild."""
-        outdated = set(super().get_outdated_docs())
+        """Return source-hash changes unless the artifact needs a clean rebuild."""
         index_path = Path(self.outdir) / INDEX_FILENAME
-        if Lens.supports_incremental(index_path, _build_fingerprint(self.env)):
-            return outdated
-        return self.env.found_docs
+        if not Lens.supports_incremental(index_path, _build_fingerprint(self.env)):
+            return self.env.found_docs
+        changed = Lens.changed_document_names(index_path, _document_hashes(self.env, Path(self.srcdir)))
+        writable = changed & self.env.found_docs
+        if writable or not changed:
+            return writable
+        return {self.env.config.root_doc}
 
     def get_target_uri(self, docname: str, typ: str | None = None) -> str:
         """Keep document names in resolved internal reference URIs."""

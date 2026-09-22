@@ -41,7 +41,7 @@ Lens also accepts `lens_no_search`, a list of source-file globs for generated
 pages that should remain available through navigation without contributing to
 `locate` results.
 
-### Incremental builds
+## Incremental builds
 
 After its first SQLite build, Lens records each document's source hash together
 with the anchors and link sources that document owns. A later Sphinx build
