@@ -88,7 +88,7 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def _add_index_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-i", "--index", type=Path, default=Path(), help="Index file or project directory")
+    parser.add_argument("-i", "--index", type=Path, default=argparse.SUPPRESS, help="Index file or project directory")
 
 
 def _search_result_dict(result: SearchResult) -> dict[str, object]:

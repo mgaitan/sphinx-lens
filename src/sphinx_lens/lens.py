@@ -23,7 +23,7 @@ from sphinx.search import SearchLanguage
 from sphinx.search import languages as sphinx_languages
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 INDEX_VERSION = 5
 INDEX_FILENAME = "index.sqlite"
@@ -401,7 +401,7 @@ class Lens:
         return self._links
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         if self._database_path is None:
             msg = "This Lens has no SQLite artifact"
             raise LensError(msg)

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from sphinx_lens import get_version, main
+from sphinx_lens import build, get_version, main
 from sphinx_lens.lens import INDEX_VERSION
 
 
@@ -102,6 +102,9 @@ def test_build_and_query_commands(
     assert main(["locate", "connection timeout", "--index", str(output), "--limit", "1", "--under", "guide"]) == 0
     assert "guide#connection-timeout" in capsys.readouterr().out
 
+    assert main(["--index", str(output), "locate", "connection timeout", "--limit", "1"]) == 0
+    assert "guide#connection-timeout" in capsys.readouterr().out
+
     assert (
         main(
             [
@@ -158,6 +161,15 @@ def test_build_and_query_commands(
     monkeypatch.chdir(tmp_path)
     assert main(["build"]) == 0
     assert (sphinx_project / "_build" / "lens" / "index.sqlite").is_file()
+
+
+def test_mcp_instructions_error(sphinx_project: Path, capsys: pytest.CaptureFixture):
+    """Report instructions-file errors through the normal CLI diagnostic."""
+    output = sphinx_project / "_build" / "lens"
+    build(sphinx_project, output)
+
+    assert main(["--mcp", "--index", str(output), "--instructions", str(sphinx_project / "missing.md")]) == 1
+    assert "Cannot read MCP instructions file" in capsys.readouterr().err
 
 
 def test_query_error(capsys: pytest.CaptureFixture):

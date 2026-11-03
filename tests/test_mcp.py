@@ -52,6 +52,30 @@ def test_mcp_tools_and_project_instructions(sphinx_project: Path):
     assert json.loads(json.dumps(dump_result[1]))["entries"]
 
 
+def test_mcp_reopens_rebuilt_index(sphinx_project: Path):
+    """Each tool call reads the current database after a rebuild."""
+    output = sphinx_project / "_build" / "lens"
+    build(sphinx_project, output)
+    server = create_server(output)
+
+    initial_entries = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("entries", {})))
+    initial_dump = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("dump", {})))
+    assert not any(entry["document"] == "added" for entry in initial_entries[1]["result"])
+    assert not any(entry["document"] == "added" for entry in initial_dump[1]["entries"])
+
+    index_source = sphinx_project / "index.rst"
+    index_source.write_text(
+        index_source.read_text(encoding="utf-8").replace("   api\n", "   api\n   added\n"), encoding="utf-8"
+    )
+    (sphinx_project / "added.rst").write_text("Added\n=====\n\nFreshly indexed content.\n", encoding="utf-8")
+    build(sphinx_project, output)
+
+    updated_entries = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("entries", {})))
+    updated_dump = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("dump", {})))
+    assert any(entry["document"] == "added" for entry in updated_entries[1]["result"])
+    assert any(entry["document"] == "added" for entry in updated_dump[1]["entries"])
+
+
 def test_mcp_explicit_instructions_path(sphinx_project: Path, tmp_path: Path):
     """Allow selecting instructions outside the project defaults."""
     output = sphinx_project / "_build" / "lens"
