@@ -1,8 +1,8 @@
 # CLI and Python API
 
-The complete surface: one builder, seven commands, one class, and the shape of
-the file they all read. [Getting started](getting_started.md) is the guided
-version of the same material.
+The complete surface: one builder, seven commands, an MCP HTTP server, one
+class, and the shape of the file they all read. [Getting started](getting_started.md)
+is the guided version of the same material.
 
 Query commands discover `_build/lens/index.sqlite` next to a Sphinx `conf.py`
 from the repository root or from a directory inside the source tree. They also
@@ -60,6 +60,7 @@ in the index and work with `resolve`, `read`, `children`, and `links`; only
 ## CLI
 
 ```text
+sphinx-lens --mcp [--index PATH] [--host HOST] [--port PORT] [--instructions FILE]
 sphinx-lens build [SOURCE] [--output DIRECTORY] [--conf-dir DIRECTORY]
                     [--doctree-dir DIRECTORY] [--fail-on-warning]
 sphinx-lens locate QUERY [--index PATH] [--limit N]
@@ -71,6 +72,25 @@ sphinx-lens links --all --json [--index PATH]
 sphinx-lens entries [--json] [--index PATH]
 sphinx-lens dump --json [--index PATH]
 ```
+
+## MCP server
+
+Run `sphinx-lens --mcp` from a project with an existing Lens index to expose the
+query API through MCP Streamable HTTP at `http://127.0.0.1:8000/mcp`. The server
+provides `locate`, `inspect`, `read`, `links`, `entries`, and `dump` tools. It
+binds to localhost by default and has no authentication; use `--host` only when
+the network boundary is trusted. `--index` selects an alternate index, while
+`--port` changes the listening port.
+
+The server reads project-specific query guidance from `LENS.md` next to the
+Sphinx source directory or the index. The text is supplied as MCP server
+instructions and exposed as the `sphinx-lens://instructions` resource. Pass
+`--instructions FILE` to select a different file. Keep instructions focused on
+corpus-specific query choices, nonstandard index locations, and citation
+conventions.
+
+`--mcp` only serves an existing index; it does not run a Sphinx build. The
+standard Streamable HTTP endpoint is `/mcp`.
 
 `sphinx-lens build` is a convenience wrapper around the native builder. With no
 `SOURCE`, it discovers the nearby `conf.py`; if multiple projects are found, it

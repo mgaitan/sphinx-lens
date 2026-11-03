@@ -6,20 +6,24 @@ import json
 import runpy
 import sys
 from importlib import metadata
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from sphinx_lens import get_version, main
 from sphinx_lens.lens import INDEX_VERSION
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 def test_main():
     """Basic CLI test."""
     assert main([]) == 0
+
+
+def test_mcp_server_command(mocker):
+    """The --mcp option starts the HTTP server with its configured values."""
+    serve = mocker.patch("sphinx_lens.serve")
+    assert main(["--mcp", "--index", "docs/_build/lens", "--host", "127.0.0.2", "--port", "9000"]) == 0
+    serve.assert_called_once_with(Path("docs/_build/lens"), instructions=None, host="127.0.0.2", port=9000)
 
 
 def test_show_help(capsys: pytest.CaptureFixture):

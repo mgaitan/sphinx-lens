@@ -152,6 +152,24 @@ documentation.
 
 [CLI and Python API](reference.md) documents the full surface.
 
+## Connect an MCP client
+
+Start the HTTP server from the repository root after building the index:
+
+```bash
+uv run sphinx-lens --mcp
+```
+
+The endpoint is `http://127.0.0.1:8000/mcp`. The server exposes the query
+operations as MCP tools. It reads an optional `LENS.md` next to the Sphinx source
+or index and sends that content as server instructions. Use the file to specify
+corpus-specific search terms, preferred subtrees, or citation requirements. To
+choose another file or listen on a different port, pass `--instructions FILE`
+or `--port PORT`.
+
+No authentication is configured. The server binds to localhost by default; only
+use `--host 0.0.0.0` on a network with appropriate access controls.
+
 ## Give it to an agent
 
 The package ships an agent skill that teaches a coding agent this workflow:
