@@ -20,6 +20,7 @@ from sphinx_lens.lens import (
     StaleIndexWarning,
     discover_source,
 )
+from sphinx_lens.mcp_server import serve
 
 
 def get_version() -> str:
@@ -34,6 +35,11 @@ def get_parser() -> argparse.ArgumentParser:
     """Return the CLI argument parser."""
     parser = argparse.ArgumentParser(prog="sphinx-lens")
     parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {get_version()}")
+    parser.add_argument("--mcp", action="store_true", help="Serve the index over MCP Streamable HTTP")
+    parser.add_argument("-i", "--index", type=Path, default=Path(), help="Index file or project directory")
+    parser.add_argument("--host", default="127.0.0.1", help="MCP server bind address")
+    parser.add_argument("--port", type=int, default=8000, help="MCP server port")
+    parser.add_argument("--instructions", type=Path, help="Project MCP instructions file (defaults to LENS.md)")
     subparsers = parser.add_subparsers(dest="command")
 
     build_parser = subparsers.add_parser("build", help="Compile and index a Sphinx project")
@@ -82,7 +88,7 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def _add_index_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("-i", "--index", type=Path, default=Path(), help="Index file or project directory")
+    parser.add_argument("-i", "--index", type=Path, default=argparse.SUPPRESS, help="Index file or project directory")
 
 
 def _search_result_dict(result: SearchResult) -> dict[str, object]:
@@ -116,10 +122,13 @@ def main(args: list[str] | None = None) -> int:  # noqa: C901, PLR0912
     """Run the main program."""
     parser = get_parser()
     opts = parser.parse_args(args=args)
-    if opts.command is None:
+    if opts.command is None and not opts.mcp:
         parser.print_help()
         return 0
     try:
+        if opts.mcp:
+            serve(opts.index, instructions=opts.instructions, host=opts.host, port=opts.port)
+            return 0
         if opts.command == "build":
             lens = build(
                 opts.source or discover_source(),

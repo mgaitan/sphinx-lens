@@ -20,6 +20,7 @@ Sphinx Lens is a Sphinx builder that writes it down instead. The output is a
 single SQLite index of documents, sections, and domain objects, each with a
 stable reference and its own scoped text, plus the compiled link graph between them.
 Coding agents get to read one precise scope instead of grepping a source tree.
+An optional MCP Streamable HTTP server exposes the same queries as tools.
 
 Each scope remains separately addressable. Consumers can retrieve the relevant
 part of the documentation without loading a whole-site text export or recovering
@@ -36,6 +37,7 @@ sphinx-lens locate "connection timeout"
 sphinx-lens inspect py:class:example.Client
 sphinx-lens read guide/network#timeouts
 sphinx-lens links guide/network#timeouts
+sphinx-lens --mcp
 ```
 
 The `lens` builder is discovered through Sphinx's builder entry point; no
