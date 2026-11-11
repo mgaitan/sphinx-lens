@@ -161,7 +161,9 @@ For example, a document with a `resource` frontmatter field returns:
 
 This example shows only the added field; existing entry fields remain in the
 response. MCP text content and `structuredContent` contain the same mapping.
-Metadata keys stay nested so they cannot overwrite entry fields such as `title`.
+The entry and its metadata are read from the same SQLite snapshot, even if a
+build replaces the index during the request. Metadata keys stay nested so they
+cannot overwrite entry fields such as `title`.
 Values are returned as stored, including MyST's JSON-encoded strings for
 structured frontmatter. Lens does not construct public citation URLs from
 internal references or append section anchors to metadata URLs.
@@ -307,7 +309,10 @@ destination. Classifying an absolute URL as `external` does not check whether
 the remote URL is reachable.
 
 `Lens.document_metadata(target)` resolves a document, section, or domain object
-and returns the metadata for its containing document. `Lens.open()` rejects
+and returns the metadata for its containing document.
+`Lens.inspect_with_metadata(target)` returns an `(Entry, metadata)` tuple from a
+single index generation, for callers that need both values during concurrent
+rebuilds. `Lens.open()` rejects
 older index versions with a rebuild message and warns when available local
 sources no longer match their hashes. An index with a `null` source emits a
 `StaleIndexWarning` explaining that the check cannot run; missing sources do not

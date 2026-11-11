@@ -82,11 +82,11 @@ def create_server(
     def inspect(target: str, include_text: bool = True) -> dict[str, object]:  # noqa: FBT001, FBT002
         """Return structured metadata for a document, section, or object."""
         current_lens = Lens.open(index)
-        entry = current_lens.inspect(target)
+        entry, document_metadata = current_lens.inspect_with_metadata(target)
         result = {
             **asdict(entry),
             "location": entry.location,
-            "document_metadata": current_lens.document_metadata(target),
+            "document_metadata": document_metadata,
         }
         if not include_text:
             result.pop("text")

@@ -2,14 +2,15 @@
 
 import asyncio
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from sphinx_lens import Entry, build
+from sphinx_lens import Entry, Lens, build
+from sphinx_lens.lens import DocumentInfo
 from sphinx_lens.mcp_server import create_server, serve
 
 
@@ -114,6 +115,63 @@ def test_mcp_inspect_unknown_target(sphinx_project: Path, *, include_text: bool)
 
     with pytest.raises(ToolError, match="Error executing tool inspect: missing"):
         asyncio.run(server.call_tool("inspect", {"target": "missing", "include_text": include_text}))
+
+
+@pytest.mark.parametrize("stage", ["after_open", "after_resolve"])
+@pytest.mark.parametrize("remove_target", [True, False])
+def test_mcp_inspect_during_atomic_rebuild(sphinx_project: Path, mocker, stage: str, *, remove_target: bool):
+    """Keep entry and metadata consistent across atomic database replacements."""
+    original = build(sphinx_project)
+    index_path = original.index_path
+    assert index_path is not None
+    target = "guide#connection-timeout"
+    old_entry = original.inspect(target)
+    old_metadata = original.document_metadata(target)
+    new_entry = replace(old_entry, title="Updated timeout", text="Updated instructions.")
+    new_metadata = {"audience": "operators"}
+    replacement = Lens(
+        source=None,
+        entries=[
+            new_entry if entry.ref == target else entry
+            for entry in original.entries
+            if not (remove_target and entry.ref == target)
+        ],
+        links=[],
+        documents={**original.documents, "guide": DocumentInfo(title="Guide", metadata=new_metadata)},
+    )
+    server = create_server(sphinx_project)
+    open_index = Lens.open
+    resolve_in = Lens._resolve_in
+
+    def open_then_replace(path):
+        current = open_index(path)
+        replacement.write(index_path)
+        return current
+
+    def resolve_then_replace(current, connection, ref, name=None):
+        entry = resolve_in(current, connection, ref, name)
+        replacement.write(index_path)
+        return entry
+
+    if stage == "after_open":
+        mocker.patch.object(Lens, "open", side_effect=open_then_replace)
+    else:
+        mocker.patch.object(Lens, "_resolve_in", autospec=True, side_effect=resolve_then_replace)
+
+    if stage == "after_open" and remove_target:
+        with pytest.raises(ToolError, match=target):
+            asyncio.run(server.call_tool("inspect", {"target": target}))
+        return
+
+    content, result = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("inspect", {"target": target})))
+    expected_entry = new_entry if stage == "after_open" else old_entry
+    expected_metadata = new_metadata if stage == "after_open" else old_metadata
+    assert result == {
+        **asdict(expected_entry),
+        "location": expected_entry.location,
+        "document_metadata": expected_metadata,
+    }
+    assert json.loads(content[0].text) == result
 
 
 def test_mcp_reopens_rebuilt_index(sphinx_project: Path):
