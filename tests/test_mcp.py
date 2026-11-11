@@ -2,10 +2,15 @@
 
 import asyncio
 import json
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, cast
 
-from sphinx_lens import build
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
+from sphinx_lens import Entry, Lens, build
+from sphinx_lens.lens import DocumentInfo
 from sphinx_lens.mcp_server import create_server, serve
 
 
@@ -50,6 +55,123 @@ def test_mcp_tools_and_project_instructions(sphinx_project: Path):
     assert entries_result[1]["result"]
     dump_result = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("dump", {})))
     assert json.loads(json.dumps(dump_result[1]))["entries"]
+
+
+@pytest.mark.parametrize("include_text", [True, False])
+@pytest.mark.parametrize("target", ["index", "index#certificate"])
+def test_mcp_inspect_myst_metadata(myst_project: Path, target: str, *, include_text: bool):
+    """Expose stored frontmatter without changing entry fields, prose, or the index."""
+    lens = build(myst_project)
+    assert lens.index_path is not None
+    original_index = lens.index_path.read_bytes()
+    server = create_server(myst_project)
+
+    content, result = cast(
+        "tuple[Any, dict[str, Any]]",
+        asyncio.run(server.call_tool("inspect", {"target": target, "include_text": include_text})),
+    )
+
+    assert json.loads(content[0].text) == result
+    assert result["document_metadata"] == lens.document_metadata(target)
+    assert result["document_metadata"]["resource"] == "https://example.test/kb/invoicing"
+    assert isinstance(result["document_metadata"]["sources"], str)
+    assert json.loads(result["document_metadata"]["sources"])[0]["id"] == "kb-1"
+    entry = lens.inspect(target)
+    assert isinstance(entry, Entry)
+    expected = {**asdict(entry), "location": entry.location}
+    if not include_text:
+        expected.pop("text")
+    assert {key: value for key, value in result.items() if key != "document_metadata"} == expected
+    read_result = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("read", {"target": target})))
+    assert read_result[1]["result"] == lens.read(target)
+    assert "resource:" not in read_result[1]["result"]
+    assert "sources:" not in read_result[1]["result"]
+    assert lens.index_path.read_bytes() == original_index
+
+
+@pytest.mark.parametrize("include_text", [True, False])
+@pytest.mark.parametrize("target", ["guide", "guide#connection-timeout", "std:term:connection budget", "index"])
+def test_mcp_inspect_without_resource(sphinx_project: Path, target: str, *, include_text: bool):
+    """Return containing-document metadata even when no public source URL exists."""
+    lens = build(sphinx_project)
+    server = create_server(sphinx_project)
+
+    content, result = cast(
+        "tuple[Any, dict[str, Any]]",
+        asyncio.run(server.call_tool("inspect", {"target": target, "include_text": include_text})),
+    )
+
+    expected = {} if target == "index" else {"audience": "developers", "keywords": "search, navigation"}
+    assert result["document_metadata"] == expected == lens.document_metadata(target)
+    assert json.loads(content[0].text) == result
+    assert ("text" in result) == include_text
+
+
+@pytest.mark.parametrize("include_text", [True, False])
+def test_mcp_inspect_unknown_target(sphinx_project: Path, *, include_text: bool):
+    """Keep unknown-target errors instead of returning metadata without an entry."""
+    build(sphinx_project)
+    server = create_server(sphinx_project)
+
+    with pytest.raises(ToolError, match="Error executing tool inspect: missing"):
+        asyncio.run(server.call_tool("inspect", {"target": "missing", "include_text": include_text}))
+
+
+@pytest.mark.parametrize("stage", ["after_open", "after_resolve"])
+@pytest.mark.parametrize("remove_target", [True, False])
+def test_mcp_inspect_during_atomic_rebuild(sphinx_project: Path, mocker, stage: str, *, remove_target: bool):
+    """Keep entry and metadata consistent across atomic database replacements."""
+    original = build(sphinx_project)
+    index_path = original.index_path
+    assert index_path is not None
+    target = "guide#connection-timeout"
+    old_entry = original.inspect(target)
+    old_metadata = original.document_metadata(target)
+    new_entry = replace(old_entry, title="Updated timeout", text="Updated instructions.")
+    new_metadata = {"audience": "operators"}
+    replacement = Lens(
+        source=None,
+        entries=[
+            new_entry if entry.ref == target else entry
+            for entry in original.entries
+            if not (remove_target and entry.ref == target)
+        ],
+        links=[],
+        documents={**original.documents, "guide": DocumentInfo(title="Guide", metadata=new_metadata)},
+    )
+    server = create_server(sphinx_project)
+    open_index = Lens.open
+    resolve_in = Lens._resolve_in
+
+    def open_then_replace(path):
+        current = open_index(path)
+        replacement.write(index_path)
+        return current
+
+    def resolve_then_replace(current, connection, ref, name=None):
+        entry = resolve_in(current, connection, ref, name)
+        replacement.write(index_path)
+        return entry
+
+    if stage == "after_open":
+        mocker.patch.object(Lens, "open", side_effect=open_then_replace)
+    else:
+        mocker.patch.object(Lens, "_resolve_in", autospec=True, side_effect=resolve_then_replace)
+
+    if stage == "after_open" and remove_target:
+        with pytest.raises(ToolError, match=target):
+            asyncio.run(server.call_tool("inspect", {"target": target}))
+        return
+
+    content, result = cast("tuple[Any, dict[str, Any]]", asyncio.run(server.call_tool("inspect", {"target": target})))
+    expected_entry = new_entry if stage == "after_open" else old_entry
+    expected_metadata = new_metadata if stage == "after_open" else old_metadata
+    assert result == {
+        **asdict(expected_entry),
+        "location": expected_entry.location,
+        "document_metadata": expected_metadata,
+    }
+    assert json.loads(content[0].text) == result
 
 
 def test_mcp_reopens_rebuilt_index(sphinx_project: Path):

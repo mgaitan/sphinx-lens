@@ -81,6 +81,25 @@ def test_round_trip_and_discovery(lens: Lens, tmp_path: Path):
     assert Lens.open(direct.parent).index_path == direct
 
 
+@pytest.mark.parametrize("persisted", [True, False])
+@pytest.mark.parametrize("with_metadata", [True, False])
+def test_inspect_with_metadata(lens: Lens, tmp_path: Path, *, persisted: bool, with_metadata: bool):
+    """Inspect returns entry and metadata together for memory and SQLite indexes."""
+    if not with_metadata:
+        lens.documents.clear()
+    current = Lens.open(lens.write(tmp_path / "index.sqlite")) if persisted else lens
+
+    for target in ("guide", "guide#timeouts", "py:class:demo.Client", "demo.Client"):
+        entry, metadata = current.inspect_with_metadata(target)
+        assert entry == lens.inspect(target)
+        assert metadata == ({"audience": "developers"} if with_metadata else {})
+        metadata["audience"] = "changed by caller"
+        assert current.inspect_with_metadata(target)[1] == lens.document_metadata(target)
+
+    with pytest.raises(TargetNotFoundError):
+        current.inspect_with_metadata("missing")
+
+
 def test_sqlite_locate_uses_fts_without_loading_all_entries(lens: Lens, tmp_path: Path):
     """Normal text search keeps the complete entries table lazy."""
     with pytest.raises(LensError, match="no SQLite artifact"), lens._connect():

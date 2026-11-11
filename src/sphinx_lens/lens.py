@@ -625,34 +625,31 @@ class Lens:
                 if exact is not None:
                     return exact
                 matches = [entry for entry in self.entries if entry.kind == "object" and entry.name == target]
-        elif name is not None:
-            domain, separator, object_type = target.partition(":")
-            matches = (
-                self._select_entries(
-                    _SELECT_OBJECT_IDENTITY,
-                    (domain, object_type, name),
-                )
-                if separator
-                else []
-            )
         else:
-            exact = self._select_entries(
-                _SELECT_ENTRY_REF,
-                (target,),
-            )
-            if exact:
-                return exact[0]
-            matches = self._select_entries(
-                _SELECT_OBJECT_NAME,
-                (target,),
-            )
+            with self._connect() as connection:
+                return self._resolve_in(connection, target, name)
+        return self._unique_match(matches, name or target)
+
+    def _resolve_in(self, connection: sqlite3.Connection, target: str, name: str | None = None) -> Entry:
+        if name is not None:
+            domain, separator, object_type = target.partition(":")
+            rows = connection.execute(_SELECT_OBJECT_IDENTITY, (domain, object_type, name)) if separator else []
+        else:
+            exact = connection.execute(_SELECT_ENTRY_REF, (target,)).fetchone()
+            if exact is not None:
+                return self._entry_from_row(exact)
+            rows = connection.execute(_SELECT_OBJECT_NAME, (target,))
+        return self._unique_match([self._entry_from_row(row) for row in rows], name or target)
+
+    @staticmethod
+    def _unique_match(matches: list[Entry], target: str) -> Entry:
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
             refs = ", ".join(entry.ref for entry in matches[:5])
-            msg = f"Ambiguous target {name or target!r}: {refs}"
+            msg = f"Ambiguous target {target!r}: {refs}"
             raise LensError(msg)
-        raise TargetNotFoundError(name or target)
+        raise TargetNotFoundError(target)
 
     def locate(  # noqa: PLR0913
         self,
@@ -817,6 +814,18 @@ class Lens:
     def inspect(self, target: str) -> Entry:
         """Return structured metadata for a semantic target."""
         return self.resolve(target)
+
+    def inspect_with_metadata(self, target: str) -> tuple[Entry, dict[str, Any]]:
+        """Return an entry and its document metadata from the same index generation."""
+        if self._database_path is None:
+            entry = self.inspect(target)
+            document = self.documents.get(entry.document)
+            return entry, dict(document.metadata) if document is not None else {}
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            entry = self._resolve_in(connection, target)
+            row = connection.execute("SELECT metadata FROM documents WHERE name = ?", (entry.document,)).fetchone()
+            return entry, json.loads(row["metadata"]) if row is not None else {}
 
     def read(self, target: str) -> str:
         """Compose normalized text from a target and its structural descendants."""

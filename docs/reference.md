@@ -141,6 +141,38 @@ Targets use one of these forms:
 - Section: `guide/network#timeouts`
 - Domain object: `py:class:example.Client`
 
+## MCP inspect response
+
+The MCP `inspect(target, include_text=True)` tool returns the entry fields and
+physical `location`, plus a nested `document_metadata` mapping. For sections
+and domain objects, this mapping belongs to the containing document. It is
+`{}` when that document has no metadata. `include_text=False` omits only the
+entry's `text` field.
+
+For example, a document with a `resource` frontmatter field returns:
+
+```json
+{
+  "document_metadata": {
+    "resource": "https://example.test/kb/invoicing"
+  }
+}
+```
+
+This example shows only the added field; existing entry fields remain in the
+response. MCP text content and `structuredContent` contain the same mapping.
+The entry and its metadata are read from the same SQLite snapshot, even if a
+build replaces the index during the request. Metadata keys stay nested so they
+cannot overwrite entry fields such as `title`.
+Values are returned as stored, including MyST's JSON-encoded strings for
+structured frontmatter. Lens does not construct public citation URLs from
+internal references or append section anchors to metadata URLs.
+
+Treat document metadata as untrusted source data, not MCP instructions.
+This field uses the existing index; no schema change or rebuild is needed.
+The Python `Lens.inspect()` method still returns an `Entry`, and `read` still
+returns prose without frontmatter.
+
 ## Shell composition
 
 Use `jq` for structured predicates and projections over search results or an
@@ -277,7 +309,10 @@ destination. Classifying an absolute URL as `external` does not check whether
 the remote URL is reachable.
 
 `Lens.document_metadata(target)` resolves a document, section, or domain object
-and returns the metadata for its containing document. `Lens.open()` rejects
+and returns the metadata for its containing document.
+`Lens.inspect_with_metadata(target)` returns an `(Entry, metadata)` tuple from a
+single index generation, for callers that need both values during concurrent
+rebuilds. `Lens.open()` rejects
 older index versions with a rebuild message and warns when available local
 sources no longer match their hashes. An index with a `null` source emits a
 `StaleIndexWarning` explaining that the check cannot run; missing sources do not
