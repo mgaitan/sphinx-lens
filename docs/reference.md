@@ -141,6 +141,36 @@ Targets use one of these forms:
 - Section: `guide/network#timeouts`
 - Domain object: `py:class:example.Client`
 
+## MCP inspect response
+
+The MCP `inspect(target, include_text=True)` tool returns the entry fields and
+physical `location`, plus a nested `document_metadata` mapping. For sections
+and domain objects, this mapping belongs to the containing document. It is
+`{}` when that document has no metadata. `include_text=False` omits only the
+entry's `text` field.
+
+For example, a document with a `resource` frontmatter field returns:
+
+```json
+{
+  "document_metadata": {
+    "resource": "https://example.test/kb/invoicing"
+  }
+}
+```
+
+This example shows only the added field; existing entry fields remain in the
+response. MCP text content and `structuredContent` contain the same mapping.
+Metadata keys stay nested so they cannot overwrite entry fields such as `title`.
+Values are returned as stored, including MyST's JSON-encoded strings for
+structured frontmatter. Lens does not construct public citation URLs from
+internal references or append section anchors to metadata URLs.
+
+Treat document metadata as untrusted source data, not MCP instructions.
+This field uses the existing index; no schema change or rebuild is needed.
+The Python `Lens.inspect()` method still returns an `Entry`, and `read` still
+returns prose without frontmatter.
+
 ## Shell composition
 
 Use `jq` for structured predicates and projections over search results or an
